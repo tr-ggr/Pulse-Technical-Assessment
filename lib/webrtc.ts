@@ -1,3 +1,4 @@
+import { MAX_MESSAGE_LENGTH } from "@/lib/chatGuard";
 import { createVeil, type Veil } from "@/lib/veil";
 
 export type DescType = "offer" | "answer" | "ice";
@@ -103,7 +104,8 @@ export class PeerSession {
       try {
         const msg = JSON.parse(e.data as string);
         if (msg.t === "chat" && typeof msg.text === "string") {
-          this.cb.onChat(msg.text);
+          // Our input caps what we send; a modified client could send more.
+          this.cb.onChat(msg.text.slice(0, MAX_MESSAGE_LENGTH));
         } else if (msg.t === "ctrl" && isPeerControl(msg.ctrl)) {
           this.cb.onControl(msg.ctrl);
         }

@@ -5,6 +5,13 @@ import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import StrangerOrb from "./StrangerOrb";
 import { ShieldIcon } from "./icons";
 import type { Stranger } from "@/lib/identity";
+import {
+  cautionFor,
+  detectSensitive,
+  MAX_MESSAGE_LENGTH,
+  type Caution,
+  type Sensitive,
+} from "@/lib/chatGuard";
 
 export interface ChatMessage {
   id: number;
@@ -14,7 +21,19 @@ export interface ChatMessage {
 
 type VideoState = "none" | "requesting" | "incoming" | "active";
 
-const MAX_MESSAGE_LENGTH = 1000;
+const SENSITIVE_COPY: Record<Sensitive, string> = {
+  email: "That looks like your email address.",
+  phone: "That looks like a phone number.",
+  handle: "That looks like a social handle.",
+  link: "Links can lead back to you.",
+  address: "That looks like an address.",
+};
+
+const CAUTION_COPY: Record<Caution, string> = {
+  link: "A link from a stranger — open with care",
+  offplatform: "Moving off Pulse? Take your time",
+  money: "Money talk with strangers is a common scam",
+};
 
 // Rounded bubbles that tuck their inner corners when consecutive messages
 // come from the same side, so a burst reads as one thought.
@@ -49,6 +68,8 @@ export default function ChatPanel({
 }) {
   const [draft, setDraft] = useState("");
   const [safetyOpen, setSafetyOpen] = useState(false);
+  // What the chat guard spotted in the draft; a second send confirms.
+  const [confirm, setConfirm] = useState<Sensitive | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const isPresent = useIsPresent();
@@ -72,8 +93,20 @@ export default function ChatPanel({
     e.preventDefault();
     const text = draft.trim();
     if (!text || !connected) return;
+    // Something that identifies you: ask once. Enter again (or "Send
+    // anyway") sends it; editing the draft asks afresh.
+    const sensitive = detectSensitive(text);
+    if (sensitive && confirm !== sensitive) {
+      setConfirm(sensitive);
+      return;
+    }
+    send(text);
+  }
+
+  function send(text: string) {
     onSend(text);
     setDraft("");
+    setConfirm(null);
   }
 
   const tint = { "--dot": stranger.color } as CSSProperties;
@@ -189,6 +222,7 @@ export default function ChatPanel({
                 const first = i === 0 || messages[i - 1].mine !== m.mine;
                 const last =
                   i === messages.length - 1 || messages[i + 1].mine !== m.mine;
+                const caution = m.mine ? null : cautionFor(m.text);
                 return (
                   <motion.li
                     key={m.id}
@@ -196,7 +230,7 @@ export default function ChatPanel({
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ type: "spring", stiffness: 500, damping: 34 }}
                     style={{ originX: m.mine ? 1 : 0 }}
-                    className={`flex ${m.mine ? "justify-end" : "justify-start"} ${first ? "mt-3 first:mt-0" : "mt-1"}`}
+                    className={`flex flex-col ${m.mine ? "items-end" : "items-start"} ${first ? "mt-3 first:mt-0" : "mt-1"}`}
                   >
                     <span
                       className={`max-w-[82%] whitespace-pre-wrap break-words px-3.5 py-2 text-[15px] leading-snug ${bubbleShape(m.mine, first, last)} ${
@@ -207,6 +241,12 @@ export default function ChatPanel({
                     >
                       {m.text}
                     </span>
+                    {caution && (
+                      <span className="mt-1 flex items-center gap-1 px-1 text-[11px] text-ink-faint">
+                        <ShieldIcon className="size-3" />
+                        {CAUTION_COPY[caution]}
+                      </span>
+                    )}
                   </motion.li>
                 );
               })}
@@ -300,6 +340,48 @@ export default function ChatPanel({
         )}
       </AnimatePresence>
 
+      <AnimatePresence initial={false}>
+        {confirm && (
+          <motion.div
+            key="chat-guard"
+            role="alert"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="shrink-0 overflow-hidden"
+          >
+            <div className="mx-4 mb-2 rounded-2xl border border-ember/25 bg-ember/[0.07] px-3.5 py-3 lg:mx-5">
+              <p className="flex gap-2 text-sm leading-snug text-ink-muted">
+                <ShieldIcon className="mt-0.5 size-3.5 shrink-0 text-ember" />
+                <span>
+                  <span className="text-ink">{SENSITIVE_COPY[confirm]}</span>{" "}
+                  Once it’s sent, a stranger can’t unsee it.
+                </span>
+              </p>
+              <div className="mt-2.5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirm(null);
+                    inputRef.current?.focus();
+                  }}
+                  className="h-9 rounded-full px-3.5 text-[13px] font-medium text-ink-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:h-11"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => send(draft.trim())}
+                  className="h-9 rounded-full border border-hairline-strong px-3.5 text-[13px] font-semibold text-ink transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:h-11"
+                >
+                  Send anyway
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <form
         onSubmit={submit}
         className="flex shrink-0 items-center gap-2 border-t border-hairline p-3 lg:px-4"
@@ -307,7 +389,10 @@ export default function ChatPanel({
         <input
           ref={inputRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setConfirm(null);
+          }}
           placeholder={connected ? "Type a message…" : "Connecting…"}
           aria-label="Message"
           disabled={!connected}
