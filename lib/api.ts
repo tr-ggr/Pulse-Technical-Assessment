@@ -13,10 +13,14 @@ export async function join(
   });
 }
 
+// Thrown by poll() when the server no longer has our presence row (410).
+export class SessionGoneError extends Error {}
+
 export async function poll(id: string): Promise<PollResponse> {
   const res = await fetch(`/api/poll?id=${encodeURIComponent(id)}`, {
     cache: "no-store",
   });
+  if (res.status === 410) throw new SessionGoneError("session gone");
   if (!res.ok) throw new Error(`poll failed: ${res.status}`);
   return res.json();
 }

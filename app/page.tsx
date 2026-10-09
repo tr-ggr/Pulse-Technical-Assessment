@@ -6,7 +6,7 @@ import WorldMap from "./components/WorldMap";
 import ConnectionPrompt from "./components/ConnectionPrompt";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel from "./components/VideoPanel";
-import { join, leave, poll, sendSignal } from "@/lib/api";
+import { join, leave, poll, sendSignal, SessionGoneError } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
 import { type PeerDot, type SignalMsg } from "@/lib/types";
@@ -51,6 +51,8 @@ export default function Home() {
   const peerRef = useRef<PeerSession | null>(null);
   const msgId = useRef(0);
   const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Raw location, kept only in memory so we can re-join if the server reaped us.
+  const locationRef = useRef<{ lat: number; lng: number } | null>(null);
 
   function showNotice(text: string) {
     setNotice(text);
@@ -291,7 +293,15 @@ export default function Home() {
         if (!active) return;
         setPeers(data.peers);
         for (const s of data.signals) processSignalRef.current(s);
-      } catch {}
+      } catch (err) {
+        // Reaped while throttled/backgrounded: re-join so we're visible again.
+        const loc = locationRef.current;
+        if (active && err instanceof SessionGoneError && loc) {
+          try {
+            await join(sessionId, loc.lat, loc.lng);
+          } catch {}
+        }
+      }
       if (active) timer = setTimeout(tick, POLL_INTERVAL_MS);
     };
     tick();
@@ -315,6 +325,7 @@ export default function Home() {
 
   async function handleReady(lat: number, lng: number) {
     setMyLocation({ lat, lng });
+    locationRef.current = { lat, lng };
     await join(sessionId, lat, lng);
     setPhase("live");
   }
