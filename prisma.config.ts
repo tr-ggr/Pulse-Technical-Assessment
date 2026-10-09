@@ -16,6 +16,9 @@ export default defineConfig({
     path: path.join("prisma", "migrations"),
   },
   datasource: {
-    url: env("DATABASE_URL"),
+    // CLI only (db push / migrate): prefer the direct, non-pooled URL — schema
+    // changes break over PgBouncer transaction pooling. The app itself keeps
+    // using the pooled DATABASE_URL via the pg adapter (lib/prisma.ts).
+    url: process.env.DATABASE_URL_UNPOOLED || env("DATABASE_URL"),
   },
 });
