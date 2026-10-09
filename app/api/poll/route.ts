@@ -4,6 +4,7 @@ import { releaseUsers } from "@/lib/pairing";
 import { STALE_MS, SIGNAL_TTL_MS } from "@/lib/presence";
 import type { PollResponse } from "@/lib/types";
 import { authenticate, unauthorized } from "@/lib/session";
+import { clientIp, limit, rules } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,8 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const id = authenticate(request);
   if (!id) return unauthorized();
+  const blocked = await limit(rules.ip(clientIp(request)), rules.poll(id));
+  if (blocked) return blocked;
 
   const now = Date.now();
   const staleCutoff = new Date(now - STALE_MS);

@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { applyPrivacyOffset, isValidLatLng } from "@/lib/geo";
 import { isToken, newToken, sessionIdFor } from "@/lib/session";
+import { clientIp, limit, rules } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,10 @@ export const dynamic = "force-dynamic";
 // upserts the presence row. Raw coordinates are never stored. Returns
 // { id, token }: the id is public, the token stays in the client's memory.
 export async function POST(request: NextRequest) {
+  const ip = clientIp(request);
+  const blocked = await limit(rules.ip(ip), rules.join(ip));
+  if (blocked) return blocked;
+
   let body: unknown;
   try {
     body = await request.json();

@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { releaseUsers } from "@/lib/pairing";
 import { authenticate, unauthorized } from "@/lib/session";
+import { clientIp, limit, rules } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,8 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   const id = authenticate(request);
   if (!id) return unauthorized();
+  const blocked = await limit(rules.ip(clientIp(request)));
+  if (blocked) return blocked;
 
   // Free and notify the partner (if any) before the row disappears.
   await releaseUsers([id]);

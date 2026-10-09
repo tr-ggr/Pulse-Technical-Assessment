@@ -13,7 +13,14 @@ import { useAttention } from "./hooks/useAttention";
 import { playChime } from "@/lib/chime";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel, { type MediaState } from "./components/VideoPanel";
-import { join, leave, poll, sendSignal, SessionGoneError } from "@/lib/api";
+import {
+  join,
+  leave,
+  poll,
+  RateLimitedError,
+  sendSignal,
+  SessionGoneError,
+} from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS, REQUEST_TIMEOUT_MS } from "@/lib/presence";
 import { type PeerDot, type SignalMsg, type SignalType } from "@/lib/types";
@@ -177,9 +184,9 @@ export default function Home() {
     setHasRequested(true);
     setConn({ kind: "requesting", peerId });
     void signal(peerId, "request").then((status) => {
-      if (status === 409 && isStill("requesting", peerId)) {
-        teardown("Couldn’t send that request.");
-      }
+      if (!isStill("requesting", peerId)) return;
+      if (status === 429) teardown("Easy — wait a few seconds between requests.");
+      else if (status === 409) teardown("Couldn’t send that request.");
     });
     requestTimer.current = setTimeout(() => {
       if (
@@ -336,6 +343,7 @@ export default function Home() {
 
     const tick = async () => {
       const token = tokenRef.current;
+      let delay = POLL_INTERVAL_MS;
       try {
         if (!token) return;
         const data = await poll(token);
@@ -343,6 +351,7 @@ export default function Home() {
         setPeers(data.peers);
         for (const s of data.signals) processSignalRef.current(s);
       } catch (err) {
+        if (err instanceof RateLimitedError) delay = err.retryAfterMs;
         // Reaped while throttled/backgrounded: re-join with the same token so
         // we come back as the same stranger, in the same spot.
         const loc = locationRef.current;
@@ -352,7 +361,7 @@ export default function Home() {
           } catch {}
         }
       } finally {
-        if (active) timer = setTimeout(tick, POLL_INTERVAL_MS);
+        if (active) timer = setTimeout(tick, delay);
       }
     };
     tick();

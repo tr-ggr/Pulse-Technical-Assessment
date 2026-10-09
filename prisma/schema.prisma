@@ -38,3 +38,14 @@ model Signal {
 
   @@index([toId])
 }
+
+model RateLimit {
+  // Fixed-window request counters (and the reaper lease), keyed by e.g.
+  // "poll:<sessionId>" or "ip:<sha256(ip)>". Rows are useless after their
+  // window and get swept by the reaper, so nothing here outlives a session.
+  key         String   @id
+  windowStart DateTime
+  count       Int
+
+  @@index([windowStart])
+}

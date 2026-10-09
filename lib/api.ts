@@ -31,6 +31,13 @@ export async function join(
 // doesn't accept our token (401) — either way, re-join.
 export class SessionGoneError extends Error {}
 
+// Thrown by poll() on 429: wait this long before polling again.
+export class RateLimitedError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super("rate limited");
+  }
+}
+
 export async function poll(token: string): Promise<PollResponse> {
   const res = await fetch("/api/poll", {
     cache: "no-store",
@@ -38,6 +45,10 @@ export async function poll(token: string): Promise<PollResponse> {
   });
   if (res.status === 410 || res.status === 401) {
     throw new SessionGoneError("session gone");
+  }
+  if (res.status === 429) {
+    const seconds = Number(res.headers.get("Retry-After")) || 5;
+    throw new RateLimitedError(seconds * 1000);
   }
   if (!res.ok) throw new Error(`poll failed: ${res.status}`);
   return res.json();

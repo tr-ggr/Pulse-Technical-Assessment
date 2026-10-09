@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { SignalType } from "@/lib/types";
 import { authenticate, isSessionId, unauthorized } from "@/lib/session";
 import { transition } from "@/lib/signaling";
+import { clientIp, limit, rules, tooMany } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,10 @@ const VALID_TYPES: SignalType[] = [
 ];
 
 const MAX_PAYLOAD = 64 * 1024; // SDP/ICE are small; cap to be safe.
+
+// Undelivered signals one recipient may hold. A real handshake needs a few
+// dozen at most; anything beyond this is someone flooding their inbox.
+const MAILBOX_MAX = 100;
 
 // POST /api/signal (Authorization: Bearer <token>) — body { toId, type, payload? }
 // Drops one message into the recipient's mailbox, if the connection state
@@ -52,6 +57,18 @@ export async function POST(request: NextRequest) {
 
   const signalType = type as SignalType;
   const payloadStr = typeof payload === "string" ? payload : null;
+
+  const blocked = await limit(
+    rules.ip(clientIp(request)),
+    rules.signal(fromId),
+    ...(signalType === "request"
+      ? [rules.request(fromId), rules.requestCooldown(fromId)]
+      : []),
+  );
+  if (blocked) return blocked;
+
+  const pending = await prisma.signal.count({ where: { toId } });
+  if (pending >= MAILBOX_MAX) return tooMany(5);
 
   // The state machine decides whether this step is legal (lib/signaling.ts).
   const verdict = await transition(fromId, toId, signalType);
