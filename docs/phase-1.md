@@ -37,7 +37,7 @@ Status: ✅ fixed · 📝 logged for a later phase
 
 | # | Symptom | Root cause | Fix | Status |
 |---|---------|------------|-----|--------|
-| B1 | Dots stay on the map long after users close the app (README example) | `app/api/poll/route.ts`: the heartbeat ran `updateMany({ where: {} })`, so **every** poll refreshed `lastSeen` for **every** user, and the stale reaper never found anything while anyone was online | Heartbeat only the caller: `where: { id }` | |
+| B1 | Dots stay on the map long after users close the app (README example) | `app/api/poll/route.ts`: the heartbeat ran `updateMany({ where: {} })`, so **every** poll refreshed `lastSeen` for **every** user, and the stale reaper never found anything while anyone was online | Heartbeat only the caller: `where: { id }` | ✅ |
 | B2 | Chat messages never appear for the other person (the sender sees their own) | `lib/webrtc.ts`: `sendChat` sent `{ t: "msg" }`, but `onmessage` only accepts `t === "chat"`, so every message was silently dropped | Send `t: "chat"` | |
 | B3 | The peer connection or video sometimes fails to establish | `lib/webrtc.ts` `handleSignal`: queued ICE candidates were flushed **before** `setRemoteDescription`. `addIceCandidate` throws without a remote description, the empty `catch {}` hid it, and the candidates were lost | Set the remote description first, then flush the queue | |
 | B4 | After one chat ends, both users stay greyed out as "busy" forever, and every new request to them is auto-declined | `app/api/signal/route.ts`: `busy` was set on `accept` but only cleared on `decline`, never on `end`, even though the comment says "decline/end: free both peers" | Clear on `end` too (see the pairing model below) | |

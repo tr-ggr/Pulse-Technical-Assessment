@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
   // 1) Heartbeat — refresh lastSeen for the caller.
   await prisma.presence.updateMany({
-    where: {},
+    where: { id },
     data: { lastSeen: new Date(now) },
   });
 
