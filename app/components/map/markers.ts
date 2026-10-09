@@ -51,3 +51,16 @@ export function updatePeerEl(el: HTMLElement, view: DotView): void {
   const label = ["Stranger", view.distanceLabel, tip].filter(Boolean).join(", ");
   if (el.getAttribute("aria-label") !== label) el.setAttribute("aria-label", label);
 }
+
+// Your own beacon. Never a `.pulse-dot`: it isn't a stranger and can't be tapped.
+export function createMeEl(): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "pulse-me";
+  el.setAttribute("aria-hidden", "true");
+  el.innerHTML =
+    '<span class="pulse-me__ring"></span>' +
+    '<span class="pulse-me__ring pulse-me__ring--late"></span>' +
+    '<span class="pulse-me__core"></span>' +
+    '<span class="pulse-me__tag">You</span>';
+  return el;
+}

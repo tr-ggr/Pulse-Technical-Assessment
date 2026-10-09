@@ -7,7 +7,7 @@ import type { PeerDot } from "@/lib/types";
 import { formatDistance } from "@/lib/identity";
 import { haversineKm } from "@/lib/geo";
 import { applyNightfall } from "./map/nightfall";
-import { createPeerEl, updatePeerEl, type DotState } from "./map/markers";
+import { createMeEl, createPeerEl, updatePeerEl, type DotState } from "./map/markers";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -95,7 +95,7 @@ export default function WorldMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Show / move the user's own "you are here" pin.
+  // Show / move your own beacon.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || !me) return;
@@ -105,12 +105,10 @@ export default function WorldMap({
       const mapboxgl = (await import("mapbox-gl")).default;
       if (cancelled) return;
       if (!meMarkerRef.current) {
-        const el = document.createElement("div");
-        el.className = "pulse-me";
-        el.title = "You are here";
-        el.innerHTML = `<span class="pulse-me-label">Me</span>📍`;
-        // anchor "bottom" → the pin's tip sits on the exact coordinate.
-        meMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+        meMarkerRef.current = new mapboxgl.Marker({
+          element: createMeEl(),
+          anchor: "center",
+        })
           .setLngLat([me.lng, me.lat])
           .addTo(map);
       } else {
