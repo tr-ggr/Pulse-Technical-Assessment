@@ -1,28 +1,79 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ── Nightfall design tokens ───────────────────────────────────────────────
+   Deep-space neutrals, one warm accent ("ember") that always means *you* and
+   your actions, and cool per-stranger hues computed in lib/identity.ts. */
+@theme {
+  --color-space: #04050b;
+  --color-night-950: #06081a;
+  --color-night-900: #080b17;
+  --color-night-800: #0e1224;
+  --color-night-700: #161b33;
+  --color-night-600: #232a4a;
+  --color-night-500: #343c63;
+
+  --color-ink: #f3efe6;
+  --color-ink-muted: #a7a6b8;
+  --color-ink-faint: #6c6c82;
+
+  --color-ember: #ffb46b;
+  --color-ember-bright: #ffd2a3;
+  --color-ember-deep: #f08a3c;
+  --color-danger: #ff6b6b;
+  --color-danger-deep: #e5484d;
+
+  --color-glass: rgb(12 15 30 / 0.58);
+  --color-glass-strong: rgb(12 15 30 / 0.86);
+  --color-hairline: rgb(255 255 255 / 0.08);
+  --color-hairline-strong: rgb(255 255 255 / 0.14);
+
+  --radius-card: 1.5rem;
+
+  --shadow-glass:
+    0 24px 64px -24px rgb(0 0 0 / 0.75), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --shadow-ember:
+    0 0 0 1px rgb(255 180 107 / 0.45), 0 10px 32px -10px rgb(255 160 80 / 0.6);
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --text-display: clamp(3.75rem, 9vw, 6.5rem);
+  --text-display--line-height: 0.9;
+  --text-display--letter-spacing: -0.02em;
+  --text-title: 1.625rem;
+  --text-title--line-height: 1.15;
+  --text-label: 0.6875rem;
+  --text-label--line-height: 1rem;
+  --text-label--letter-spacing: 0.14em;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-instrument-serif), ui-serif, Georgia, serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Frosted panel floating over the globe. */
+@utility glass {
+  background: var(--color-glass);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid var(--color-hairline);
+  box-shadow: var(--shadow-glass);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--color-glass-strong);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+html {
+  color-scheme: dark;
+  background: var(--color-space);
+}
+
+::selection {
+  background: rgb(255 180 107 / 0.35);
 }
 
 /* Live user dots on the map */
