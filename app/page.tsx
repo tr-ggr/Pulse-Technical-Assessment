@@ -333,12 +333,14 @@ export default function Home() {
   }
 
   const inChat = conn.kind === "connecting" || conn.kind === "connected";
+  const link = conn.kind === "idle" ? null : { peerId: conn.peerId, phase: conn.kind };
 
   return (
     <main className="fixed inset-0 overflow-hidden">
       <WorldMap
         peers={peers}
         me={myLocation}
+        link={link}
         onPeerClick={requestConnection}
         canConnect={conn.kind === "idle"}
       />

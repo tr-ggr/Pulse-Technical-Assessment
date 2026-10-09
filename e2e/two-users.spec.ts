@@ -41,8 +41,9 @@ function remoteVideoHasTrack(page: Page) {
 async function connect(a: Page, b: Page) {
   const dot = a.locator(".pulse-dot");
   await expect(dot).toHaveCount(1);
-  // Busy peers are dimmed; wait until B is free before tapping.
-  await expect(dot).toHaveCSS("opacity", "1");
+  // Busy peers can't be tapped; wait until B is free. (Not marker opacity:
+  // on the globe Mapbox writes that itself to fade dots past the horizon.)
+  await expect(dot).toHaveAttribute("data-busy", "false");
   await dot.click();
   await expect(a.getByText("Requesting connection…")).toBeVisible();
 

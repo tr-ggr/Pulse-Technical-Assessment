@@ -4,18 +4,37 @@ import { useEffect, useRef, useState } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { Map as MapboxMap, Marker } from "mapbox-gl";
 import type { PeerDot } from "@/lib/types";
-import { peerColor } from "@/lib/identity";
+import { formatDistance } from "@/lib/identity";
+import { haversineKm } from "@/lib/geo";
+import { createPeerEl, updatePeerEl, type DotState } from "./map/markers";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+
+export type LinkPhase = "requesting" | "incoming" | "connecting" | "connected";
+
+// The stranger you're currently linked with (asking, being asked, or talking).
+export interface MapLink {
+  peerId: string;
+  phase: LinkPhase;
+}
+
+function dotStateFor(peerId: string, link: MapLink | null): DotState {
+  if (!link || link.peerId !== peerId) return "idle";
+  if (link.phase === "requesting") return "target";
+  if (link.phase === "incoming") return "caller";
+  return "partner";
+}
 
 export default function WorldMap({
   peers,
   me,
+  link,
   onPeerClick,
   canConnect,
 }: {
   peers: PeerDot[];
   me: { lat: number; lng: number } | null;
+  link: MapLink | null;
   onPeerClick: (id: string) => void;
   canConnect: boolean;
 }) {
@@ -116,20 +135,24 @@ export default function WorldMap({
         seen.add(peer.id);
         let marker = markers.get(peer.id);
         if (!marker) {
-          const el = document.createElement("button");
-          el.className = "pulse-dot";
-          el.style.background = peerColor(peer.id);
-          el.title = "Tap to connect";
+          const el = createPeerEl(peer.id);
           el.addEventListener("click", (e) => {
             e.stopPropagation();
-            if (canConnectRef.current) onPeerClickRef.current(peer.id);
+            if (canConnectRef.current && el.dataset.busy !== "true") {
+              onPeerClickRef.current(peer.id);
+            }
           });
           marker = new mapboxgl.Marker({ element: el })
             .setLngLat([peer.lng, peer.lat])
             .addTo(map);
           markers.set(peer.id, marker);
         }
-        marker.getElement().style.opacity = peer.busy ? "0.35" : "1";
+        updatePeerEl(marker.getElement(), {
+          busy: peer.busy,
+          state: dotStateFor(peer.id, link),
+          canConnect,
+          distanceLabel: me ? formatDistance(haversineKm(me, peer)) : null,
+        });
       }
 
       // Drop markers for peers that went offline / got filtered out.
@@ -144,7 +167,7 @@ export default function WorldMap({
     return () => {
       cancelled = true;
     };
-  }, [peers, ready]);
+  }, [peers, ready, link, canConnect, me]);
 
   return (
     <div className="absolute inset-0">

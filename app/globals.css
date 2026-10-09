@@ -76,21 +76,166 @@ html {
   background: rgb(255 180 107 / 0.35);
 }
 
-/* Live user dots on the map */
+/* ── Stranger dots ─────────────────────────────────────────────────────────
+   The <button> is the Mapbox marker: never transform or fade it (Mapbox owns
+   both). Halo, core and tooltip carry every visual state. */
 .pulse-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 9999px;
-  border: 2px solid rgba(255, 255, 255, 0.9);
-  cursor: pointer;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  box-shadow: 0 0 0 rgba(255, 255, 255, 0.5);
-  animation: pulse-ring 2s ease-out infinite;
-  transition: transform 0.1s ease;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.pulse-dot:hover {
-  transform: scale(1.3);
+.pulse-dot:hover,
+.pulse-dot:focus-visible {
+  z-index: 5;
+  outline: none;
+}
+
+/* Comfortable 44px touch target without changing the visual size. */
+@media (pointer: coarse) {
+  .pulse-dot::before {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+
+.pulse-dot__halo,
+.pulse-dot__core {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  transition:
+    opacity 0.4s ease,
+    filter 0.4s ease,
+    transform 0.35s var(--ease-out-expo);
+}
+
+.pulse-dot__halo {
+  background: var(--dot-glow);
+  animation: dot-halo 2.8s ease-out infinite;
+  animation-delay: var(--dot-delay, 0ms);
+}
+
+.pulse-dot__core {
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgb(255 255 255 / 0.95) 0 16%,
+    var(--dot) 52%
+  );
+  box-shadow:
+    0 0 0 1.5px rgb(255 255 255 / 0.2),
+    0 0 14px 3px var(--dot-glow);
+  animation: dot-in 0.7s var(--ease-out-expo) both;
+}
+
+.pulse-dot:hover .pulse-dot__core,
+.pulse-dot:focus-visible .pulse-dot__core {
+  transform: scale(1.4);
+}
+
+.pulse-dot:focus-visible .pulse-dot__core {
+  box-shadow:
+    0 0 0 2px var(--color-space),
+    0 0 0 3.5px var(--color-ember),
+    0 0 14px 3px var(--dot-glow);
+}
+
+/* Busy strangers fade back and desaturate; they can't be tapped. */
+.pulse-dot[data-busy="true"][data-state="idle"] {
+  cursor: default;
+}
+.pulse-dot[data-busy="true"][data-state="idle"] > .pulse-dot__halo {
+  opacity: 0;
+}
+.pulse-dot[data-busy="true"][data-state="idle"] > .pulse-dot__core {
+  opacity: 0.35;
+  filter: saturate(0.3);
+}
+
+/* The stranger you're calling (or who is calling you): a turning dashed ring. */
+.pulse-dot[data-state="target"]::after,
+.pulse-dot[data-state="caller"]::after,
+.pulse-dot[data-state="partner"]::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: 9999px;
+  pointer-events: none;
+}
+.pulse-dot[data-state="target"]::after,
+.pulse-dot[data-state="caller"]::after {
+  border: 1.5px dashed var(--dot);
+  animation: spin 6s linear infinite;
+}
+/* The stranger you're talking to: a steady ember ring that ties them to you. */
+.pulse-dot[data-state="partner"]::after {
+  border: 1.5px solid var(--color-ember);
+  box-shadow: 0 0 12px rgb(255 180 107 / 0.5);
+}
+
+.pulse-dot__tip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  translate: -50% 4px;
+  padding: 4px 9px;
+  border-radius: 9999px;
+  background: var(--color-glass-strong);
+  border: 1px solid var(--color-hairline);
+  color: var(--color-ink);
+  font: 500 11px/1.3 var(--font-sans);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.2s ease,
+    translate 0.3s var(--ease-out-expo);
+}
+.pulse-dot:hover .pulse-dot__tip,
+.pulse-dot:focus-visible .pulse-dot__tip {
+  opacity: 1;
+  translate: -50% 0;
+}
+@media (pointer: coarse) {
+  .pulse-dot__tip {
+    display: none;
+  }
+}
+
+@keyframes dot-halo {
+  0% {
+    transform: scale(1);
+    opacity: 0.75;
+  }
+  75%,
+  100% {
+    transform: scale(3.4);
+    opacity: 0;
+  }
+}
+
+@keyframes dot-in {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 /* The user's own "you are here" pin — small, sized like the dots. */
@@ -115,16 +260,4 @@ html {
   padding: 0 5px;
   border-radius: 9999px;
   white-space: nowrap;
-}
-
-@keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4);
-  }
-  70% {
-    box-shadow: 0 0 0 8px rgba(255, 255, 255, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
-  }
 }
