@@ -12,6 +12,7 @@ import {
 import CallControls, { CallTimer, VeilIcon } from "./CallControls";
 import StrangerOrb from "./StrangerOrb";
 import type { Stranger } from "@/lib/identity";
+import { useGuardian, type GuardianStatus } from "../hooks/useGuardian";
 
 export interface MediaState {
   mic: boolean;
@@ -101,6 +102,14 @@ export default function VideoPanel({
 
   const showRemote = !!remoteStream && remoteMedia.cam;
   const revealed = reveal.mine && reveal.theirs;
+  const guardian = useGuardian(remoteRef, revealed && showRemote);
+  // Blurred for us: before mutual reveal, or after the Guardian flags a frame.
+  const blurred = !revealed || guardian.flagged;
+
+  function keepVeiled() {
+    guardian.clear();
+    onVeil();
+  }
 
   return (
     <motion.section
@@ -111,6 +120,8 @@ export default function VideoPanel({
       exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.25 } }}
       transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
       data-veiled={revealed ? "false" : "true"}
+      data-guardian={guardian.status}
+      data-flagged={guardian.flagged ? "true" : undefined}
       className="absolute inset-0 z-40 overflow-hidden bg-black lg:inset-y-4 lg:left-4 lg:right-[432px] lg:rounded-[2rem] lg:border lg:border-hairline lg:shadow-[var(--shadow-glass)]"
     >
       <div ref={stageRef} className="absolute inset-0">
@@ -123,7 +134,7 @@ export default function VideoPanel({
           playsInline
           className={`absolute inset-0 h-full w-full bg-night-950 object-cover transition-[opacity,filter,scale] duration-700 ease-out-expo ${
             showRemote ? "opacity-100" : "opacity-0"
-          } ${revealed ? "" : "scale-125 blur-3xl saturate-150"}`}
+          } ${blurred ? "scale-125 blur-3xl saturate-150" : ""}`}
         />
 
         {!showRemote && (
@@ -160,7 +171,18 @@ export default function VideoPanel({
               Muted
             </span>
           )}
+          <GuardianChip status={guardian.status} />
         </div>
+
+        <AnimatePresence>
+          {guardian.flagged && (
+            <GuardianCard
+              key="guardian"
+              onKeepVeiled={keepVeiled}
+              onShowAnyway={guardian.showAnyway}
+            />
+          )}
+        </AnimatePresence>
 
         {/* Self-view: mirrored like a mirror, draggable to any corner. */}
         <motion.div
@@ -319,5 +341,119 @@ function ConsentChip({ label, ready }: { label: string; ready: boolean }) {
       {label}
       <span className="sr-only">{ready ? " is ready" : " hasn’t revealed"}</span>
     </span>
+  );
+}
+
+const GUARDIAN_LABEL: Record<GuardianStatus, string> = {
+  loading: "Guardian starting…",
+  on: "Guardian on",
+  paused: "Guardian paused",
+  unavailable: "Guardian unavailable",
+};
+
+const GUARDIAN_TITLE: Record<GuardianStatus, string> = {
+  loading: "Loading the on-device safety check",
+  on: "Checks their video on this device for nudity. Nothing is uploaded.",
+  paused: "You chose to show their video anyway for this call",
+  unavailable: "This device can’t run the safety check; the veil still works",
+};
+
+export function ShieldIcon({ className = "size-3.5" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 16 16"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+    >
+      <path d="M8 1.75 2.75 3.6v4.1c0 3.2 2.2 5.6 5.25 6.55 3.05-.95 5.25-3.35 5.25-6.55V3.6L8 1.75Z" />
+    </svg>
+  );
+}
+
+function GuardianChip({ status }: { status: GuardianStatus }) {
+  const on = status === "on";
+  return (
+    <span
+      title={GUARDIAN_TITLE[status]}
+      className={`pointer-events-auto ml-auto flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-xs backdrop-blur ${
+        on ? "text-ink" : "text-ink-muted"
+      }`}
+    >
+      <span className="relative grid place-items-center">
+        <ShieldIcon />
+        {on && (
+          <span
+            aria-hidden
+            className="absolute size-1 rounded-full bg-[#7ee2b8] shadow-[0_0_6px_#7ee2b8]"
+          />
+        )}
+      </span>
+      {GUARDIAN_LABEL[status]}
+    </span>
+  );
+}
+
+// Shown over a stage the Guardian has just blurred. Your call what happens:
+// put the veil back over both cameras, or trust them for the rest of the call.
+function GuardianCard({
+  onKeepVeiled,
+  onShowAnyway,
+}: {
+  onKeepVeiled: () => void;
+  onShowAnyway: () => void;
+}) {
+  return (
+    <motion.div
+      role="alertdialog"
+      aria-labelledby="guardian-title"
+      aria-describedby="guardian-desc"
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.2 } }}
+      transition={{ type: "spring", stiffness: 340, damping: 30 }}
+      className="absolute inset-0 z-20 grid place-items-center p-6"
+    >
+      <div className="glass w-full max-w-sm rounded-card p-5 text-center">
+        <span
+          aria-hidden
+          className="mx-auto grid size-12 place-items-center rounded-full bg-white/8 text-ink"
+        >
+          <ShieldIcon className="size-6" />
+        </span>
+        <h3
+          id="guardian-title"
+          className="mt-3 font-display text-[26px] leading-tight text-ink"
+        >
+          Guardian blurred this
+        </h3>
+        <p
+          id="guardian-desc"
+          className="mx-auto mt-1.5 max-w-[19rem] text-sm leading-relaxed text-ink-muted text-pretty"
+        >
+          Their video may contain nudity. This check runs only on your device —
+          nothing was uploaded, and the stranger isn’t told.
+        </p>
+        <div className="mt-4 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={onKeepVeiled}
+            className="h-11 rounded-full bg-ember text-sm font-semibold text-night-900 transition hover:bg-ember-bright active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+          >
+            Keep it blurred
+          </button>
+          <button
+            type="button"
+            onClick={onShowAnyway}
+            className="h-11 rounded-full border border-hairline-strong text-sm font-medium text-ink-muted transition hover:border-ink-faint hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70"
+          >
+            Show anyway
+          </button>
+        </div>
+      </div>
+    </motion.div>
   );
 }
