@@ -12,6 +12,7 @@ interface PeerCallbacks {
   onRemoteStream: (stream: MediaStream | null) => void;
   onConnectionState: (state: RTCPeerConnectionState) => void;
   onChannelOpen: () => void;
+  onChannelClose: () => void;
 }
 
 const ICE_CONFIG: RTCConfiguration = {
@@ -73,6 +74,11 @@ export class PeerSession {
 
   private wireDataChannel(dc: RTCDataChannel) {
     dc.onopen = () => this.cb.onChannelOpen();
+    // The peer closing its tab/connection closes the channel well before ICE
+    // gives up — surface it so the chat ends promptly. Ignore our own close().
+    dc.onclose = () => {
+      if (!this.closed) this.cb.onChannelClose();
+    };
     dc.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data as string);
@@ -107,8 +113,11 @@ export class PeerSession {
     this.ignoreOffer = !this.polite && offerCollision;
     if (this.ignoreOffer) return;
 
-    await this.flushPendingCandidates();
+    // Candidates can only be added once a remote description exists, so apply
+    // it first; anything queued meanwhile (including during this await) is
+    // flushed right after.
     await this.pc.setRemoteDescription(desc);
+    await this.flushPendingCandidates();
     if (desc.type === "offer") {
       await this.pc.setLocalDescription();
       if (this.pc.localDescription) {
@@ -129,7 +138,7 @@ export class PeerSession {
   }
 
   sendChat(text: string) {
-    this.safeSend({ t: "msg", text });
+    this.safeSend({ t: "chat", text });
   }
 
   sendControl(ctrl: PeerControl) {
