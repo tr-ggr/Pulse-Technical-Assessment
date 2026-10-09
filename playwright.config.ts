@@ -7,6 +7,10 @@ try {
   process.loadEnvFile(path.join(process.cwd(), ".env"));
 } catch {}
 
+// Dedicated port so the suite never attaches to some other app on :3000.
+const PORT = Number(process.env.E2E_PORT ?? 3100);
+const BASE_URL = `http://localhost:${PORT}`;
+
 export default defineConfig({
   testDir: "e2e",
   timeout: 180_000,
@@ -14,7 +18,7 @@ export default defineConfig({
   workers: 1,
   reporter: "list",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: BASE_URL,
     trace: "retain-on-failure",
   },
   projects: [
@@ -36,8 +40,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
+    command: `npm run dev -- --port ${PORT}`,
+    url: BASE_URL,
     timeout: 120_000,
     reuseExistingServer: !process.env.CI,
   },
