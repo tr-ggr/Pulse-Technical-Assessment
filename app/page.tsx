@@ -69,6 +69,11 @@ export default function Home() {
   // Raw location, kept only in memory so we can re-join if the server reaped us.
   const locationRef = useRef<{ lat: number; lng: number } | null>(null);
 
+  function isStill(kind: Conn["kind"], peerId: string) {
+    const c = connRef.current;
+    return c.kind === kind && "peerId" in c && c.peerId === peerId;
+  }
+
   function signal(toId: string, type: SignalType, payload?: string) {
     const token = tokenRef.current;
     return token ? sendSignal(token, toId, type, payload) : Promise.resolve(0);
@@ -171,7 +176,11 @@ export default function Home() {
     if (connRef.current.kind !== "idle") return;
     setHasRequested(true);
     setConn({ kind: "requesting", peerId });
-    void signal(peerId, "request");
+    void signal(peerId, "request").then((status) => {
+      if (status === 409 && isStill("requesting", peerId)) {
+        teardown("Couldn’t send that request.");
+      }
+    });
     requestTimer.current = setTimeout(() => {
       if (
         connRef.current.kind === "requesting" &&
@@ -194,8 +203,13 @@ export default function Home() {
     if (connRef.current.kind !== "incoming") return;
     const peerId = connRef.current.peerId;
     startPeer(peerId, false);
-    void signal(peerId, "accept");
     setConn({ kind: "connecting", peerId });
+    void signal(peerId, "accept").then((status) => {
+      // The server only pairs us if their request is still live.
+      if (status === 409 && isStill("connecting", peerId)) {
+        teardown("That request expired.");
+      }
+    });
   }
 
   function declineIncoming() {

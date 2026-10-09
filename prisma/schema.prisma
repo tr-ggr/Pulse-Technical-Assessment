@@ -17,9 +17,14 @@ model Presence {
   lng      Float
   busy     Boolean  @default(false) // true while in an active connection
   peerId   String? // session id of the active partner (set with busy)
+  // Outgoing connection request, so the server can tell a real accept from a
+  // forged one. One at a time; expires with REQUEST_TIMEOUT_MS.
+  requestTo String?
+  requestAt DateTime?
   lastSeen DateTime
 
   @@index([lastSeen])
+  @@index([requestTo])
 }
 
 model Signal {
