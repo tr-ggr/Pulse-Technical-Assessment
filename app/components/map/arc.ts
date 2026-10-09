@@ -115,6 +115,7 @@ export function createArc(map: MapboxMap): ArcController {
   let raf = 0;
   let start = 0;
   let lastFrame = 0;
+  let resting = false;
 
   const onStyle = () => addLayers(map);
   addLayers(map);
@@ -129,7 +130,11 @@ export function createArc(map: MapboxMap): ArcController {
     const t = (now - start) % cycle;
     // Ease the head so it accelerates out and settles in, like a thrown spark.
     const x = Math.min(1, t / lap);
-    const p = t > lap ? -1 : 1 - Math.pow(1 - x, 2.2);
+    const rest = t > lap;
+    // Between heartbeats there's nothing to draw: skip the repaint entirely.
+    if (rest && resting) return;
+    resting = rest;
+    const p = rest ? -1 : 1 - Math.pow(1 - x, 2.2);
     map.setPaintProperty(COMET, "line-gradient", cometGradient(p * 1.06));
   };
 
