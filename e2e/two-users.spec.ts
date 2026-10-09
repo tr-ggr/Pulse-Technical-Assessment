@@ -1,8 +1,8 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
-// Full Phase 1 flow with two real browser contexts (two strangers):
-// see each other → connect → chat both ways → video → hang up → reconnect →
-// one closes the tab → the other's chat ends and the dot disappears.
+// Full flow with two real browser contexts (two strangers):
+// see each other → connect → chat both ways → video (mute) → hang up →
+// reconnect → one closes the tab → the other's chat ends and the dot goes.
 //
 // Runs against the real local stack, so it needs DATABASE_URL and
 // NEXT_PUBLIC_MAPBOX_TOKEN. Use an otherwise idle database: the test expects
@@ -48,6 +48,8 @@ async function connect(a: Page, b: Page) {
   await expect(a.getByText("Requesting connection…")).toBeVisible();
 
   await expect(b.getByText("A stranger wants to connect")).toBeVisible();
+  // The card says roughly where the request comes from (Manila ↔ Cebu).
+  await expect(b.getByText(/~\d[\d,]* km away/)).toBeVisible();
   await b.getByRole("button", { name: "Accept" }).click();
 
   // "Connected" only shows once the WebRTC data channel is open.
@@ -89,6 +91,12 @@ test("two strangers can see, connect, chat, video, reconnect and leave", async (
   // it must be on screen (B6). click() alone would auto-scroll and hide this.
   await expect(a.getByRole("button", { name: "End video" })).toBeInViewport();
   await expect(b.getByRole("button", { name: "End video" })).toBeInViewport();
+  // Muting is local (track.enabled) and announced to the other side.
+  const mute = a.getByRole("button", { name: "Mute microphone" });
+  await mute.click();
+  await expect(mute).toHaveAttribute("aria-pressed", "true");
+  await expect(b.getByText("Muted", { exact: true })).toBeVisible();
+
   await a.getByRole("button", { name: "End video" }).click();
   await expect(a.getByRole("button", { name: "End video" })).toBeHidden();
   await expect(b.getByRole("button", { name: "End video" })).toBeHidden();
