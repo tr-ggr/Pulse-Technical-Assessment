@@ -6,6 +6,7 @@ import type { Map as MapboxMap, Marker } from "mapbox-gl";
 import type { PeerDot } from "@/lib/types";
 import { formatDistance } from "@/lib/identity";
 import { haversineKm } from "@/lib/geo";
+import { applyNightfall } from "./map/nightfall";
 import { createPeerEl, updatePeerEl, type DotState } from "./map/markers";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -66,11 +67,14 @@ export default function WorldMap({
       const map = new mapboxgl.Map({
         container: containerRef.current,
         style: "mapbox://styles/mapbox/dark-v11",
+        projection: "globe",
         // Open centered on the user if we know where they are, else world view.
         center: me ? [me.lng, me.lat] : [0, 20],
-        zoom: me ? 4 : 1.4,
-        attributionControl: true,
+        zoom: me ? 3.4 : 1.4,
+        attributionControl: false,
       });
+      map.addControl(new mapboxgl.AttributionControl({ compact: true }));
+      map.on("style.load", () => applyNightfall(map));
       map.on("load", () => {
         if (!cancelled) setReady(true);
       });
@@ -171,7 +175,12 @@ export default function WorldMap({
 
   return (
     <div className="absolute inset-0">
-      <div ref={containerRef} className="h-full w-full bg-zinc-900" />
+      <div
+        ref={containerRef}
+        className={`h-full w-full bg-space transition-opacity duration-1000 ${
+          ready || !TOKEN ? "opacity-100" : "opacity-0"
+        }`}
+      />
 
       {!TOKEN && (
         <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
