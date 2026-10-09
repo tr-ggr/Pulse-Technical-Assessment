@@ -107,8 +107,11 @@ export class PeerSession {
     this.ignoreOffer = !this.polite && offerCollision;
     if (this.ignoreOffer) return;
 
-    await this.flushPendingCandidates();
+    // Candidates can only be added once a remote description exists, so apply
+    // it first; anything queued meanwhile (including during this await) is
+    // flushed right after.
     await this.pc.setRemoteDescription(desc);
+    await this.flushPendingCandidates();
     if (desc.type === "offer") {
       await this.pc.setLocalDescription();
       if (this.pc.localDescription) {
