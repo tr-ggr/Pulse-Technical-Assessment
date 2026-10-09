@@ -147,50 +147,55 @@ export default function ChatPanel({
                 <span aria-hidden className="text-ink-faint">
                   ·
                 </span>
-                <span className="truncate">{stranger.distanceLabel}</span>
+                {/* "away" is implied here; it buys room for the buttons. */}
+                <span className="truncate" title={stranger.distanceLabel}>
+                  {stranger.distanceLabel.replace(/ away$/, "")}
+                </span>
               </>
             )}
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setSafetyOpen(true)}
-          aria-label="Safety"
-          aria-haspopup="dialog"
-          title="Block or report"
-          className="grid size-9 place-items-center rounded-full border border-hairline-strong text-ink-muted transition hover:border-ink-faint hover:bg-white/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:size-11"
-        >
-          <ShieldIcon className="size-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onStartVideo}
-          disabled={!connected || video !== "none"}
-          aria-label="Video"
-          title="Start a video call"
-          className="grid size-9 place-items-center rounded-full border border-hairline-strong text-ink transition hover:border-ink-faint hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:size-11"
-        >
-          <svg
-            aria-hidden
-            viewBox="0 0 20 20"
-            className="size-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinejoin="round"
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setSafetyOpen(true)}
+            aria-label="Safety"
+            aria-haspopup="dialog"
+            title="Block or report"
+            className="grid size-9 place-items-center rounded-full border border-hairline-strong text-ink-muted transition hover:border-ink-faint hover:bg-white/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:size-11"
           >
-            <rect x="2" y="5" width="11" height="10" rx="2.5" />
-            <path d="m13 8.5 4.5-2.5v8L13 11.5" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={onEnd}
-          className="h-9 rounded-full bg-danger/15 px-3.5 text-[13px] font-semibold text-[#ff9b9b] transition hover:bg-danger hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70 pointer-coarse:h-11"
-        >
-          End
-        </button>
+            <ShieldIcon className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onStartVideo}
+            disabled={!connected || video !== "none"}
+            aria-label="Video"
+            title="Start a video call"
+            className="grid size-9 place-items-center rounded-full border border-hairline-strong text-ink transition hover:border-ink-faint hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:size-11"
+          >
+            <svg
+              aria-hidden
+              viewBox="0 0 20 20"
+              className="size-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinejoin="round"
+            >
+              <rect x="2" y="5" width="11" height="10" rx="2.5" />
+              <path d="m13 8.5 4.5-2.5v8L13 11.5" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={onEnd}
+            className="h-9 rounded-full bg-danger/15 px-3.5 text-[13px] font-semibold text-[#ff9b9b] transition hover:bg-danger hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70 pointer-coarse:h-11"
+          >
+            End
+          </button>
+        </div>
       </header>
 
       <div

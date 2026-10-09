@@ -77,7 +77,7 @@ async function connect(a: Page, b: Page) {
 
 async function send(page: Page, text: string) {
   await page.getByPlaceholder("Type a message…").fill(text);
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
 }
 
 test("two strangers can see, connect, chat, video, reconnect and leave", async ({

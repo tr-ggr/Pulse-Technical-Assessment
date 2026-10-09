@@ -162,8 +162,9 @@ export default function VideoPanel({
           </div>
         )}
 
-        {/* Top bar: who, how long, and whether they can hear you. */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-3 bg-gradient-to-b from-black/60 to-transparent px-5 pb-10 pt-[max(1.25rem,env(safe-area-inset-top))]">
+        {/* Top bar: who, how long, whether they can hear you, and the
+            Guardian. Right padding keeps it clear of the self-view. */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-center gap-x-3 gap-y-2 bg-gradient-to-b from-black/60 to-transparent px-5 pr-[124px] pb-10 md:pr-[152px] pt-[max(1.25rem,env(safe-area-inset-top))]">
           <StrangerOrb stranger={stranger} size={28} />
           <div className="leading-tight">
             <p className="font-display text-xl text-ink">Stranger</p>
@@ -218,7 +219,8 @@ export default function VideoPanel({
                 className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[10px] font-medium text-ink backdrop-blur"
               >
                 <VeilIcon className="size-3" />
-                They see a blur
+                <span className="md:hidden">Blurred</span>
+                <span className="hidden md:inline">They see a blur</span>
               </motion.span>
             )}
           </AnimatePresence>
@@ -349,17 +351,18 @@ function ConsentChip({ label, ready }: { label: string; ready: boolean }) {
 }
 
 const GUARDIAN_LABEL: Record<GuardianStatus, string> = {
-  loading: "Guardian starting…",
+  loading: "Guardian…",
   on: "Guardian on",
   paused: "Guardian paused",
-  unavailable: "Guardian unavailable",
+  unavailable: "Guardian off",
 };
 
 const GUARDIAN_TITLE: Record<GuardianStatus, string> = {
   loading: "Loading the on-device safety check",
   on: "Checks their video on this device for nudity. Nothing is uploaded.",
   paused: "You chose to show their video anyway for this call",
-  unavailable: "This device can’t run the safety check; the veil still works",
+  unavailable:
+    "This device can’t run the on-device safety check; the veil still works",
 };
 
 function GuardianChip({ status }: { status: GuardianStatus }) {
@@ -367,7 +370,7 @@ function GuardianChip({ status }: { status: GuardianStatus }) {
   return (
     <span
       title={GUARDIAN_TITLE[status]}
-      className={`pointer-events-auto ml-auto flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-xs backdrop-blur ${
+      className={`pointer-events-auto ml-1 flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-xs backdrop-blur ${
         on ? "text-ink" : "text-ink-muted"
       }`}
     >
