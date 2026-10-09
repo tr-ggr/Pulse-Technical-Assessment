@@ -230,6 +230,10 @@ export default function Home() {
           if (requestTimer.current) clearTimeout(requestTimer.current);
           startPeer(sig.fromId, true);
           setConn({ kind: "connecting", peerId: sig.fromId });
+        } else {
+          // Late accept (we timed out / cancelled / moved on): the server has
+          // already paired us as busy, so release that pairing explicitly.
+          void sendSignal(sessionId, sig.fromId, "end");
         }
         break;
       }

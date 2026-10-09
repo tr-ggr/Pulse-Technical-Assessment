@@ -49,7 +49,7 @@ Status: ✅ fixed · 📝 logged for a later phase
 |---|---------|------------|-----|--------|
 | S1 | A tab that was throttled in the background, or restored from the back/forward cache, becomes permanently invisible | Once the reaper deletes the row, the heartbeat updates nothing and the client never joins again | Poll returns `410 Gone` when the caller has no row, and the client re-joins | |
 | S2 | Closing the tab mid-chat leaves the partner stuck in a dead chat, still marked busy | `leave` didn't tell the partner or clear their `busy`. It also deleted the leaver's **outgoing** unread signals, which could include the `end` it had just sent. The client only reacted to connectionState `failed` | Track pairing with a `peerId` column. Leave and the reaper free the partner and send them `end`. Leave only deletes signals addressed to the leaver. The client tears down on data-channel close or connectionState `closed` | ✅ |
-| S3 | An `accept` that arrives just after the requester gave up locks both users as busy | The server marks both busy on any `accept`, and the client silently ignored an unexpected accept | The client answers an unexpected `accept` with `end` | |
+| S3 | An `accept` that arrives just after the requester gave up locks both users as busy | The server marks both busy on any `accept`, and the client silently ignored an unexpected accept | The client answers an unexpected `accept` with `end` | ✅ |
 | S4 | A user in a chat can be marked free by a stray `decline` (an auto-decline of a third party) | `decline` cleared `busy` on both ids unconditionally | `end`/`decline` only clear users who are paired with each other (`peerId`) | ✅ |
 
 ### Logged, not fixed in Phase 1
