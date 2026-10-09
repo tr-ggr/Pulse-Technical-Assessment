@@ -45,9 +45,88 @@ Full log with root causes and file references: [`docs/phase-1.md`](docs/phase-1.
 **Known, deferred:**
 - Signals aren't sequenced, so offer/ICE can race. Perfect negotiation recovers
   in practice.
-- Join failures aren't surfaced in the UI.
+- ~~Join failures aren't surfaced in the UI.~~ Fixed in Phase 2: the entry gate
+  shows the error and a retry.
 - No authentication on session ids. This is Phase 3.
 
 **Schema change:** run `npx prisma migrate deploy` (or `db push`) to add
 `Presence.peerId`. The Prisma CLI uses `DATABASE_URL_UNPOOLED` (the direct
 connection) when it's set; the app uses the pooled `DATABASE_URL`.
+
+## Phase 2 — Make it good
+
+Full write-up with screenshots: [`docs/phase-2.md`](docs/phase-2.md).
+
+![Pulse entry gate](docs/screenshots/phase-2/desktop-1-gate.webp)
+
+**Direction: "Nightfall".** Pulse is "a living globe of strangers", so the planet
+is the hero. It's a 3D globe in starry space, the UI is frosted glass floating
+over it, and the dots glow like bioluminescence.
+
+**Design system:**
+- **One colour rule:** warm ember means *you* (your beacon, your bubbles, your end
+  of the arc, primary actions). Strangers get cool hues from their session id,
+  and each keeps that colour everywhere: dot, orb, arc, chat tint.
+- **Type:** Instrument Serif for personality, Geist for UI, Geist Mono for
+  numbers. Fixed an `Arial` override that was hiding Geist.
+- Tokens and a `glass` utility live in `globals.css` (`@theme`).
+
+**What changed, and why:**
+- **Map:** globe projection, atmosphere and stars, with `dark-v11` recoloured and
+  decluttered. I chose this over Mapbox Standard/night: its 3D detail is
+  invisible at Pulse's zooms and it renders slower.
+- **Entry:** the gate floats over the live, spinning globe (opening on your side
+  of the world), then flies you down to your beacon. Locating has its own state,
+  and each error has specific copy and a retry.
+- **Requests** say who and where: the stranger's orb, a coarse distance and
+  direction, and a ring that drains over the real 30 s timeout. The incoming
+  card is non-modal and sits at thumb height on phones.
+- **The arc:** a great-circle line from you to the stranger, with a comet that
+  searches, flies home when someone calls you, or pulses once connected. The
+  map tells the same story as the panels.
+- **Chat:** a glass card on desktop (globe still visible) or a bottom sheet on
+  phones. Grouped, animated bubbles; connecting and empty states. Video
+  negotiation is inline in the chat, and its accept card has no autofocus, so
+  Enter mid-sentence can't turn on your camera.
+- **Call:**
+  - Layout: on desktop the stage sits beside the chat, so you can keep texting.
+  - Controls: mute, camera off and a timer. Mute and camera state reach the other
+    side over the data channel, so they see "Muted" or "Their camera is off"
+    instead of a black frame.
+  - The self-view is draggable and snaps to a corner.
+- **Attention:** a background tab flashes its title and plays a soft synthesised
+  chime when a request arrives.
+- **HUD and notices:** live count, recenter, first-run hint, and one deduped
+  `aria-live` toast stack.
+- **Accessibility:**
+  - Reduced motion is respected everywhere (spin, comet, CSS and motion
+    transforms). The request countdown keeps running because it carries
+    information.
+  - Esc backs out of pending requests but never hangs up.
+  - Focus rings; 44px touch targets; alertdialog semantics on request cards.
+
+**Bugs found along the way:**
+- **Dots jumped on hover.** The hover `transform` overwrote Mapbox's positioning
+  transform, and Mapbox also writes marker `opacity` on the globe. Styling now
+  lives on child elements and `data-*` attributes.
+- **The glass panels had no blur.** The CSS minifier kept only
+  `-webkit-backdrop-filter`, which Chrome ignores.
+- **A dropped call blamed "the network".** It now says the connection to the
+  stranger was lost. The e2e asserts that the chat closes, instead of racing two
+  toasts.
+
+**Constraints I kept:**
+- No server API changes.
+- The conn/video state machine is untouched; new UI state is derived during
+  render.
+- Distance is computed in the browser from your location to their dot, which is
+  already public and offset 1–3 km. Nothing new leaves the browser.
+
+**Verification:** lint, `tsc`, `next build` and `npm run e2e` all pass. The e2e
+now also checks the request distance and the mute round trip. I also did manual
+two-browser runs at 1440×900 and 390×844.
+
+**Deferred:**
+- Delivery latency for requests in long-hidden (throttled) tabs.
+- A fade-out when a dot leaves.
+- A cheaper glass fallback for low-end phones.
