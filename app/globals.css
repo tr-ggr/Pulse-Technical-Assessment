@@ -22,7 +22,7 @@
   --color-danger: #ff6b6b;
   --color-danger-deep: #e5484d;
 
-  --color-glass: rgb(12 15 30 / 0.58);
+  --color-glass: rgb(12 15 30 / 0.62);
   --color-glass-strong: rgb(12 15 30 / 0.86);
   --color-hairline: rgb(255 255 255 / 0.08);
   --color-hairline-strong: rgb(255 255 255 / 0.14);
@@ -55,13 +55,15 @@
 /* Frosted panel floating over the globe. */
 @utility glass {
   background: var(--color-glass);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  /* Via Tailwind's backdrop utilities: a hand-written backdrop-filter got
+     collapsed to only the -webkit- form by the CSS minifier, which Chrome
+     ignores, so the glass silently lost its blur. */
+  @apply backdrop-blur-[18px] backdrop-saturate-[1.4];
   border: 1px solid var(--color-hairline);
   box-shadow: var(--shadow-glass);
 }
 
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+@supports not (backdrop-filter: blur(1px)) {
   .glass {
     background: var(--color-glass-strong);
   }
