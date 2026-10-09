@@ -99,8 +99,13 @@ test("two strangers can see, connect, chat, video, reconnect and leave", async (
   await connect(a, b);
 
   // B closes the tab mid-chat: A's chat ends (S2) and B's dot goes away (B1).
+  // A killed tab can't always say goodbye, so A learns of it from either the
+  // server's stale reaper ("Stranger disconnected.") or ICE failing ("Lost the
+  // connection…"), whichever is first. Assert the outcome: A's chat closes.
   await bob.context.close();
-  await expect(a.getByText("Stranger disconnected.")).toBeVisible();
+  await expect(a.getByRole("button", { name: "End", exact: true })).toBeHidden({
+    timeout: 40_000,
+  });
   await expect(a.locator(".pulse-dot")).toHaveCount(0, { timeout: 30_000 });
 
   await alice.context.close();

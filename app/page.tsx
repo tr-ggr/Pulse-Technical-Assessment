@@ -86,7 +86,13 @@ export default function Home() {
       onConnectionState: (state) => {
         if (peerRef.current !== ps) return;
         if (state === "failed") {
-          teardown("Connection failed (network).");
+          // Once connected, a failure is almost always the stranger vanishing
+          // (tab killed, network gone) before any "end" could reach us.
+          teardown(
+            connRef.current.kind === "connected"
+              ? "Lost the connection to the stranger."
+              : "Couldn’t connect. A network may be blocking it.",
+          );
         } else if (state === "closed") {
           teardown("Stranger disconnected.");
         }
