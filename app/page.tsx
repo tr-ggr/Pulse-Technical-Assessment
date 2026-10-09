@@ -9,7 +9,6 @@ import Toasts from "./components/Toasts";
 import RequestingPill from "./components/RequestingPill";
 import RequestCard from "./components/RequestCard";
 import { useToasts } from "./hooks/useToasts";
-import ConnectionPrompt from "./components/ConnectionPrompt";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel from "./components/VideoPanel";
 import { join, leave, poll, sendSignal, SessionGoneError } from "@/lib/api";
@@ -355,7 +354,10 @@ export default function Home() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <main className="fixed inset-0 overflow-hidden bg-space">
+      <main
+        className="fixed inset-0 overflow-hidden bg-space"
+        data-chat={inChat ? "open" : undefined}
+      >
         <WorldMap
           ref={mapHandle}
           mode={phase === "gate" ? "intro" : "live"}
@@ -434,36 +436,25 @@ export default function Home() {
           )}
         </AnimatePresence>
 
-        {inChat && (
-          <ChatPanel
-            messages={messages}
-            connected={conn.kind === "connected"}
-            videoBusy={video !== "none"}
-            onSend={(text) => {
-              peerRef.current?.sendChat(text);
-              addMessage(true, text);
-            }}
-            onStartVideo={startVideoRequest}
-            onEnd={endConnection}
-          />
-        )}
-
-        {video === "requesting" && (
-          <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-            Waiting for stranger to accept video…
-          </div>
-        )}
-
-        {video === "incoming" && (
-          <ConnectionPrompt
-            title="Start video call?"
-            subtitle="The stranger wants to turn on video."
-            acceptLabel="Accept"
-            declineLabel="Decline"
-            onAccept={acceptVideo}
-            onDecline={declineVideo}
-          />
-        )}
+        <AnimatePresence>
+          {inChat && stranger && (
+            <ChatPanel
+              key={conn.peerId}
+              messages={messages}
+              connected={conn.kind === "connected"}
+              stranger={stranger}
+              video={video}
+              onSend={(text) => {
+                peerRef.current?.sendChat(text);
+                addMessage(true, text);
+              }}
+              onStartVideo={startVideoRequest}
+              onAcceptVideo={acceptVideo}
+              onDeclineVideo={declineVideo}
+              onEnd={endConnection}
+            />
+          )}
+        </AnimatePresence>
 
         {video === "active" && (
           <VideoPanel
