@@ -13,10 +13,17 @@ import { useAttention } from "./hooks/useAttention";
 import { playChime } from "@/lib/chime";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel, { type MediaState } from "./components/VideoPanel";
-import { join, leave, poll, sendSignal, SessionGoneError } from "@/lib/api";
+import {
+  join,
+  leave,
+  poll,
+  RateLimitedError,
+  sendSignal,
+  SessionGoneError,
+} from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS, REQUEST_TIMEOUT_MS } from "@/lib/presence";
-import { type PeerDot, type SignalMsg } from "@/lib/types";
+import { type PeerDot, type SignalMsg, type SignalType } from "@/lib/types";
 import { describeStranger } from "@/lib/identity";
 
 type Conn =
@@ -32,7 +39,9 @@ const MEDIA_ON: MediaState = { mic: true, cam: true };
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
-  const [sessionId] = useState(() => crypto.randomUUID());
+  // Bearer token issued by /api/join. Memory only: it dies with the tab, and
+  // presenting it again on re-join brings us back as the same stranger.
+  const tokenRef = useRef<string | null>(null);
   const [peers, setPeers] = useState<PeerDot[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const { toasts, push: showNotice, dismiss: dismissToast } = useToasts();
@@ -67,6 +76,16 @@ export default function Home() {
   // Raw location, kept only in memory so we can re-join if the server reaped us.
   const locationRef = useRef<{ lat: number; lng: number } | null>(null);
 
+  function isStill(kind: Conn["kind"], peerId: string) {
+    const c = connRef.current;
+    return c.kind === kind && "peerId" in c && c.peerId === peerId;
+  }
+
+  function signal(toId: string, type: SignalType, payload?: string) {
+    const token = tokenRef.current;
+    return token ? sendSignal(token, toId, type, payload) : Promise.resolve(0);
+  }
+
   function addMessage(mine: boolean, text: string) {
     setMessages((prev) => [...prev, { id: msgId.current++, mine, text }]);
   }
@@ -87,7 +106,7 @@ export default function Home() {
   function startPeer(peerId: string, initiator: boolean) {
     const ps = new PeerSession(initiator, {
       onSignal: (type: DescType, payload: string) => {
-        void sendSignal(sessionId, peerId, type, payload);
+        void signal(peerId, type, payload);
       },
       onChat: (text) => addMessage(false, text),
       onControl: (ctrl) => handleControl(ctrl),
@@ -164,13 +183,17 @@ export default function Home() {
     if (connRef.current.kind !== "idle") return;
     setHasRequested(true);
     setConn({ kind: "requesting", peerId });
-    void sendSignal(sessionId, peerId, "request");
+    void signal(peerId, "request").then((status) => {
+      if (!isStill("requesting", peerId)) return;
+      if (status === 429) teardown("Easy — wait a few seconds between requests.");
+      else if (status === 409) teardown("Couldn’t send that request.");
+    });
     requestTimer.current = setTimeout(() => {
       if (
         connRef.current.kind === "requesting" &&
         connRef.current.peerId === peerId
       ) {
-        void sendSignal(sessionId, peerId, "end");
+        void signal(peerId, "end");
         teardown("No answer.");
       }
     }, REQUEST_TIMEOUT_MS);
@@ -178,7 +201,7 @@ export default function Home() {
 
   function cancelRequest() {
     if (connRef.current.kind === "requesting") {
-      void sendSignal(sessionId, connRef.current.peerId, "end");
+      void signal(connRef.current.peerId, "end");
     }
     teardown();
   }
@@ -187,20 +210,25 @@ export default function Home() {
     if (connRef.current.kind !== "incoming") return;
     const peerId = connRef.current.peerId;
     startPeer(peerId, false);
-    void sendSignal(sessionId, peerId, "accept");
     setConn({ kind: "connecting", peerId });
+    void signal(peerId, "accept").then((status) => {
+      // The server only pairs us if their request is still live.
+      if (status === 409 && isStill("connecting", peerId)) {
+        teardown("That request expired.");
+      }
+    });
   }
 
   function declineIncoming() {
     if (connRef.current.kind !== "incoming") return;
-    void sendSignal(sessionId, connRef.current.peerId, "decline");
+    void signal(connRef.current.peerId, "decline");
     setConn({ kind: "idle" });
   }
 
   function endConnection() {
     const c = connRef.current;
     if (c.kind === "connecting" || c.kind === "connected") {
-      void sendSignal(sessionId, c.peerId, "end");
+      void signal(c.peerId, "end");
     }
     teardown();
   }
@@ -248,7 +276,7 @@ export default function Home() {
         if (connRef.current.kind === "idle") {
           setConn({ kind: "incoming", peerId: sig.fromId });
         } else {
-          void sendSignal(sessionId, sig.fromId, "decline");
+          void signal(sig.fromId, "decline");
         }
         break;
       }
@@ -261,7 +289,7 @@ export default function Home() {
         } else {
           // Late accept (we timed out / cancelled / moved on): the server has
           // already paired us as busy, so release that pairing explicitly.
-          void sendSignal(sessionId, sig.fromId, "end");
+          void signal(sig.fromId, "end");
         }
         break;
       }
@@ -309,26 +337,32 @@ export default function Home() {
   });
 
   useEffect(() => {
-    if (phase !== "live" || !sessionId) return;
+    if (phase !== "live") return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const tick = async () => {
+      const token = tokenRef.current;
+      let delay = POLL_INTERVAL_MS;
       try {
-        const data = await poll(sessionId);
+        if (!token) return;
+        const data = await poll(token);
         if (!active) return;
         setPeers(data.peers);
         for (const s of data.signals) processSignalRef.current(s);
       } catch (err) {
-        // Reaped while throttled/backgrounded: re-join so we're visible again.
+        if (err instanceof RateLimitedError) delay = err.retryAfterMs;
+        // Reaped while throttled/backgrounded: re-join with the same token so
+        // we come back as the same stranger, in the same spot.
         const loc = locationRef.current;
         if (active && err instanceof SessionGoneError && loc) {
           try {
-            await join(sessionId, loc.lat, loc.lng);
+            await join(loc.lat, loc.lng, token ?? undefined);
           } catch {}
         }
+      } finally {
+        if (active) timer = setTimeout(tick, delay);
       }
-      if (active) timer = setTimeout(tick, POLL_INTERVAL_MS);
     };
     tick();
 
@@ -336,18 +370,20 @@ export default function Home() {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [phase, sessionId]);
+  }, [phase]);
 
   useEffect(() => {
-    if (!sessionId || phase !== "live") return;
-    const onLeave = () => leave(sessionId);
+    if (phase !== "live") return;
+    const onLeave = () => {
+      if (tokenRef.current) leave(tokenRef.current);
+    };
     window.addEventListener("pagehide", onLeave);
     window.addEventListener("beforeunload", onLeave);
     return () => {
       window.removeEventListener("pagehide", onLeave);
       window.removeEventListener("beforeunload", onLeave);
     };
-  }, [sessionId, phase]);
+  }, [phase]);
 
   const inChat = conn.kind === "connecting" || conn.kind === "connected";
 
@@ -393,7 +429,8 @@ export default function Home() {
 
   async function handleReady(lat: number, lng: number) {
     locationRef.current = { lat, lng };
-    await join(sessionId, lat, lng);
+    const session = await join(lat, lng, tokenRef.current ?? undefined);
+    tokenRef.current = session.token;
     setMyLocation({ lat, lng });
     setPhase("live");
   }

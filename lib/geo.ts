@@ -1,26 +1,56 @@
-// Privacy offset: move a real coordinate 1–3 km in a random direction so the
-// dot is placed *near* the user, never at their exact location. A fresh random
-// offset is generated each session (this runs once per join), so the same user
-// lands somewhere different every time.
+// Privacy offset: place the dot 1–3 km from the user's real location, never
+// at it. Two defences against someone averaging many dots to find a user:
+//
+// 1. Snap first. The real location is snapped to the centre of a 1 km grid
+//    cell, and the dot is offset from that centre on a ring sized so it still
+//    lands 1–3 km from the real point. Averaging many dots from the same
+//    place only ever recovers the cell centre, not the user.
+// 2. One dot per session. The offset comes from a per-session seed (derived
+//    from the session token), so re-joins after a reap land on the same spot
+//    instead of leaking a fresh sample each time. A new session gets a new
+//    seed, so the user lands somewhere different every time.
 
 const KM_PER_DEG_LAT = 111.32;
 
-export function applyPrivacyOffset(
+export const GRID_CELL_KM = 1;
+// Furthest the real point can be from its cell centre, plus a little slack
+// for the flat-earth maths below.
+const SNAP_MAX_KM = GRID_CELL_KM / Math.SQRT2 + 0.02;
+const RING_MIN_KM = 1 + SNAP_MAX_KM;
+const RING_MAX_KM = 3 - SNAP_MAX_KM;
+
+function kmPerDegLng(lat: number): number {
+  return KM_PER_DEG_LAT * Math.max(Math.cos((lat * Math.PI) / 180), 0.01);
+}
+
+// Centre of the 1 km grid cell containing (lat, lng).
+export function snapToGrid(lat: number, lng: number): { lat: number; lng: number } {
+  const cellLat = GRID_CELL_KM / KM_PER_DEG_LAT;
+  const centerLat = clamp((Math.floor(lat / cellLat) + 0.5) * cellLat, -90, 90);
+  const cellLng = GRID_CELL_KM / kmPerDegLng(centerLat);
+  const centerLng = (Math.floor(lng / cellLng) + 0.5) * cellLng;
+  return { lat: centerLat, lng: wrapLng(centerLng) };
+}
+
+// `seed` is two uniform numbers in [0, 1): angle and radius.
+export function placeDot(
   lat: number,
   lng: number,
+  seed: [number, number],
 ): { lat: number; lng: number } {
-  const distanceKm = 1 + Math.random() * 2; // 1–3 km
-  const bearing = Math.random() * 2 * Math.PI; // random direction
+  const center = snapToGrid(lat, lng);
+  const bearing = seed[0] * 2 * Math.PI;
+  // Uniform over the ring's area, not its radius, so dots don't bunch inward.
+  const distanceKm = Math.sqrt(
+    RING_MIN_KM ** 2 + seed[1] * (RING_MAX_KM ** 2 - RING_MIN_KM ** 2),
+  );
 
   const dLat = (distanceKm * Math.cos(bearing)) / KM_PER_DEG_LAT;
-  const latRad = (lat * Math.PI) / 180;
-  const dLng =
-    (distanceKm * Math.sin(bearing)) /
-    (KM_PER_DEG_LAT * Math.cos(latRad) || KM_PER_DEG_LAT);
+  const dLng = (distanceKm * Math.sin(bearing)) / kmPerDegLng(center.lat);
 
   return {
-    lat: clamp(lat + dLat, -90, 90),
-    lng: wrapLng(lng + dLng),
+    lat: clamp(center.lat + dLat, -90, 90),
+    lng: wrapLng(center.lng + dLng),
   };
 }
 
