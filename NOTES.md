@@ -130,3 +130,56 @@ two-browser runs at 1440×900 and 390×844.
 - Delivery latency for requests in long-hidden (throttled) tabs.
 - A fade-out when a dot leaves.
 - A cheaper glass fallback for low-end phones.
+
+## Phase 3 — Make it secure
+
+Full threat table, design reasoning and trade-offs: [`docs/phase-3.md`](docs/phase-3.md).
+
+**How I reviewed it:** I read the four API routes as an attacker who has the
+app open in DevTools. Every user's id is in the poll response, and every call
+is a plain `fetch`. I replayed each finding against the running app, and each
+fix has a matching refusal check in `e2e/security.spec.ts`.
+
+**Ranked findings → status:**
+1. **Critical: no auth.** The public session id was the only credential. Anyone
+   could read another user's inbox, kick them, move their dot or send signals as
+   them. → **Fixed:** the server issues a bearer token, and the public id is
+   SHA-256(token).
+2. **Critical: signaling MITM.** Forged SDP/ICE could insert the attacker's
+   DTLS fingerprint into anyone's call. → **Fixed:** a server-side state
+   machine; SDP/ICE only flows between two users the server has paired.
+3. **Critical: a forged `accept`** paired anyone and could grey out the whole
+   map. → **Fixed:** an accept needs a live request made to you, and both sides
+   are claimed with conditional updates.
+4. **High: no rate limits.** Fake-dot spam, DB flooding, request harassment, and
+   a reaper that ran on every poll. → **Fixed:** Postgres fixed-window counters
+   per IP and per session, a mailbox cap, and a reaper that runs at most once
+   every 5 s under a lease.
+5. **High: location triangulation.** A fresh offset on every re-join and every
+   reload let an attacker average their way to your real location. → **Fixed:**
+   snap to a 1 km grid, then offset on a ring that keeps the dot 1–3 km away,
+   seeded per session. Averaging finds only the 1 km cell.
+6. **High: P2P exposes each peer's IP.** → **Documented.** Fixing it needs a
+   TURN relay, which is an external service.
+7. **Medium:**
+   - Payload and shape validation → **fixed**.
+   - Security headers and CSP (anti-clickjacking for the camera and location
+     prompts) → **fixed**.
+   - Mapbox token URL restriction → **documented** (dashboard setting).
+   - Hardcoded ngrok dev origin → **fixed**.
+
+**Constraints I kept:** no external services (so no Redis for rate limits),
+nothing about a user outlives their session (no token is stored, counters
+expire, IPs are hashed), and the dot is still 1–3 km away with a new spot each
+session.
+
+**Schema change:** `npx prisma db push` adds `Presence.requestTo/requestAt`
+and the `RateLimit` table. It only adds fields and a table.
+
+**Verification:** `npm run e2e` now runs 12 tests: privacy, security and the
+two-user flow. The two-user flow and the CSP check also pass against
+`next start`. Lint, `tsc` and `next build` are clean.
+
+**Next with more time:** a TURN relay for IP privacy, offsetting in the browser
+so raw coordinates never leave the device, block/report for strangers, and
+tuning the per-IP limits for users behind carrier NAT.
