@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { applyPrivacyOffset, isValidLatLng } from "@/lib/geo";
-import { isToken, newToken, sessionIdFor } from "@/lib/session";
+import { isValidLatLng, placeDot } from "@/lib/geo";
+import { isToken, newToken, offsetSeed, sessionIdFor } from "@/lib/session";
 import { clientIp, limit, rules } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 
 // POST /api/join — body { lat, lng, token? } (raw coords).
 // Issues a session token (or reuses the one presented, so a reaped client
-// comes back as the same stranger), applies a 1–3 km privacy offset and
-// upserts the presence row. Raw coordinates are never stored. Returns
+// comes back as the same stranger, on the same spot), places the dot 1–3 km
+// away (lib/geo.ts placeDot) and upserts the presence row. Raw coordinates are never stored. Returns
 // { id, token }: the id is public, the token stays in the client's memory.
 export async function POST(request: NextRequest) {
   const ip = clientIp(request);
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
   const token = presented ?? newToken();
   const id = sessionIdFor(token);
-  const offset = applyPrivacyOffset(lat as number, lng as number);
+  const offset = placeDot(lat as number, lng as number, offsetSeed(token));
 
   await prisma.presence.upsert({
     where: { id },

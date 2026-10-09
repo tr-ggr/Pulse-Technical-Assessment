@@ -28,6 +28,12 @@ export function sessionIdFor(token: string): string {
   return digest("id", token).toString("base64url");
 }
 
+// Two uniform numbers in [0, 1) that fix this session's dot (see placeDot).
+export function offsetSeed(token: string): [number, number] {
+  const d = digest("offset", token);
+  return [d.readUInt32BE(0) / 2 ** 32, d.readUInt32BE(4) / 2 ** 32];
+}
+
 // The caller's session id, or null when the bearer token is missing/malformed.
 export function authenticate(request: Request): string | null {
   const header = request.headers.get("authorization") ?? "";
