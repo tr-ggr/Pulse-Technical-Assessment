@@ -1,25 +1,17 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { releaseUsers } from "@/lib/pairing";
+import { authenticate, unauthorized } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST /api/leave — body { id }. Ends any active pairing, then removes the
-// presence row and this user's pending inbox. Called via navigator.sendBeacon on tab close, so
-// the body may arrive as text — parse defensively.
+// POST /api/leave (Authorization: Bearer <token>). Ends any active pairing,
+// then removes the caller's presence row and pending inbox. Sent as a
+// keepalive fetch on tab close (sendBeacon can't carry the auth header).
 export async function POST(request: NextRequest) {
-  let id: string | undefined;
-  try {
-    const text = await request.text();
-    id = text ? (JSON.parse(text)?.id as string | undefined) : undefined;
-  } catch {
-    id = undefined;
-  }
-
-  if (typeof id !== "string" || !id) {
-    return Response.json({ error: "invalid id" }, { status: 400 });
-  }
+  const id = authenticate(request);
+  if (!id) return unauthorized();
 
   // Free and notify the partner (if any) before the row disappears.
   await releaseUsers([id]);

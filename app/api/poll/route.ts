@@ -3,20 +3,18 @@ import { prisma } from "@/lib/prisma";
 import { releaseUsers } from "@/lib/pairing";
 import { STALE_MS, SIGNAL_TTL_MS } from "@/lib/presence";
 import type { PollResponse } from "@/lib/types";
+import { authenticate, unauthorized } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// GET /api/poll?id= — the single endpoint that drives the live map.
-// It (1) heartbeats the caller, (2) reaps stale presence + orphan signals,
-// (3) returns the filtered online peers, and (4) drains this user's mailbox.
+// GET /api/poll (Authorization: Bearer <token>) — the single endpoint that
+// drives the live map. It (1) heartbeats the caller, (2) reaps stale presence
+// + orphan signals, (3) returns the filtered online peers, and (4) drains the
+// caller's mailbox. The caller is whoever the token says, never a query param.
 export async function GET(request: NextRequest) {
-  const params = request.nextUrl.searchParams;
-  const id = params.get("id");
-
-  if (!id) {
-    return Response.json({ error: "missing id" }, { status: 400 });
-  }
+  const id = authenticate(request);
+  if (!id) return unauthorized();
 
   const now = Date.now();
   const staleCutoff = new Date(now - STALE_MS);
