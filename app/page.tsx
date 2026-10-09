@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, MotionConfig } from "motion/react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import EntryGate from "./components/EntryGate";
-import WorldMap from "./components/WorldMap";
+import WorldMap, { type WorldMapHandle } from "./components/WorldMap";
+import Hud from "./components/Hud";
+import Toasts from "./components/Toasts";
+import { useToasts } from "./hooks/useToasts";
 import ConnectionPrompt from "./components/ConnectionPrompt";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel from "./components/VideoPanel";
@@ -26,7 +29,10 @@ export default function Home() {
   const [sessionId] = useState(() => crypto.randomUUID());
   const [peers, setPeers] = useState<PeerDot[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [notice, setNotice] = useState<string | null>(null);
+  const { toasts, push: showNotice, dismiss: dismissToast } = useToasts();
+  // Hide the "tap a dot" hint once someone has figured it out.
+  const [hasRequested, setHasRequested] = useState(false);
+  const mapHandle = useRef<WorldMapHandle>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [myLocation, setMyLocation] = useState<{
@@ -53,11 +59,6 @@ export default function Home() {
   const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Raw location, kept only in memory so we can re-join if the server reaped us.
   const locationRef = useRef<{ lat: number; lng: number } | null>(null);
-
-  function showNotice(text: string) {
-    setNotice(text);
-    window.setTimeout(() => setNotice(null), 3500);
-  }
 
   function addMessage(mine: boolean, text: string) {
     setMessages((prev) => [...prev, { id: msgId.current++, mine, text }]);
@@ -144,6 +145,7 @@ export default function Home() {
 
   function requestConnection(peerId: string) {
     if (connRef.current.kind !== "idle") return;
+    setHasRequested(true);
     setConn({ kind: "requesting", peerId });
     void sendSignal(sessionId, peerId, "request");
     requestTimer.current = setTimeout(() => {
@@ -344,6 +346,7 @@ export default function Home() {
     <MotionConfig reducedMotion="user">
       <main className="fixed inset-0 overflow-hidden bg-space">
         <WorldMap
+          ref={mapHandle}
           mode={phase === "gate" ? "intro" : "live"}
           peers={peers}
           me={myLocation}
@@ -356,11 +359,49 @@ export default function Home() {
           {phase === "gate" && <EntryGate key="gate" onReady={handleReady} />}
         </AnimatePresence>
 
-        {notice && (
-          <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-            {notice}
-          </div>
+        {phase === "live" && (
+          <Hud
+            online={peers.length}
+            onRecenter={() => mapHandle.current?.recenter()}
+          />
         )}
+
+        {/* Top-centre stack: what you're waiting on, then transient notices. */}
+        <div
+          className={`pointer-events-none absolute inset-x-0 top-[calc(max(1rem,env(safe-area-inset-top))+3.25rem)] z-30 flex flex-col items-center gap-2 px-4 md:top-5 ${
+            inChat ? "lg:pr-[432px]" : ""
+          }`}
+        >
+          <Toasts toasts={toasts} onDismiss={dismissToast} />
+        </div>
+
+        <AnimatePresence>
+          {phase === "live" && conn.kind === "idle" && !hasRequested && (
+            <motion.p
+              key={peers.length === 0 ? "quiet" : "hint"}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                transition: { delay: 2.6, duration: 0.6 },
+              }}
+              exit={{ opacity: 0, y: 6, transition: { duration: 0.25 } }}
+              className="glass pointer-events-none absolute bottom-[max(2.5rem,calc(env(safe-area-inset-bottom)+1.5rem))] left-1/2 z-20 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-full px-4 py-2.5 text-center text-sm text-ink-muted"
+            >
+              {peers.length === 0 ? (
+                <>
+                  It’s quiet right now. Your dot is live — anyone who joins will
+                  see you.
+                </>
+              ) : (
+                <>
+                  Tap a <span className="text-ink">glowing dot</span> to say
+                  hello
+                </>
+              )}
+            </motion.p>
+          )}
+        </AnimatePresence>
 
         {conn.kind === "requesting" && (
           <div className="absolute left-1/2 top-20 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">

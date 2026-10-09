@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { Map as MapboxMap, Marker } from "mapbox-gl";
 import type { PeerDot } from "@/lib/types";
@@ -65,6 +71,12 @@ function homeLongitude(): number {
 
 export const LIVE_ZOOM = 3.4;
 
+const liveZoom = () => (window.innerWidth < 768 ? LIVE_ZOOM - 0.4 : LIVE_ZOOM);
+
+export interface WorldMapHandle {
+  recenter: () => void;
+}
+
 function dotStateFor(peerId: string, link: MapLink | null): DotState {
   if (!link || link.peerId !== peerId) return "idle";
   if (link.phase === "requesting") return "target";
@@ -73,6 +85,7 @@ function dotStateFor(peerId: string, link: MapLink | null): DotState {
 }
 
 export default function WorldMap({
+  ref,
   mode,
   peers,
   me,
@@ -80,6 +93,7 @@ export default function WorldMap({
   onPeerClick,
   canConnect,
 }: {
+  ref?: Ref<WorldMapHandle>;
   // "intro": idle spinning globe behind the entry gate. "live": you're on it.
   mode: "intro" | "live";
   peers: PeerDot[];
@@ -102,6 +116,21 @@ export default function WorldMap({
     onPeerClickRef.current = onPeerClick;
     canConnectRef.current = canConnect;
   });
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      recenter() {
+        if (!me) return;
+        mapRef.current?.flyTo({
+          center: [me.lng, me.lat],
+          zoom: Math.max(liveZoom(), mapRef.current.getZoom()),
+          duration: 1600,
+        });
+      },
+    }),
+    [me],
+  );
 
   // Initialise the map once.
   useEffect(() => {
@@ -155,7 +184,7 @@ export default function WorldMap({
       // Not `essential`: Mapbox turns this into a jump under reduced motion.
       map.flyTo({
         center: [me.lng, me.lat],
-        zoom: window.innerWidth < 768 ? LIVE_ZOOM - 0.4 : LIVE_ZOOM,
+        zoom: liveZoom(),
         padding: { top: 0, right: 0, bottom: 0, left: 0 },
         duration: 2800,
         curve: 1.6,
@@ -250,18 +279,16 @@ export default function WorldMap({
 
       {!TOKEN && (
         <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
-          <p className="max-w-md rounded-lg bg-zinc-800 p-4 text-sm text-zinc-200">
+          <p className="glass max-w-md rounded-card p-5 text-sm leading-relaxed text-ink-muted">
             Set{" "}
-            <code className="text-emerald-400">NEXT_PUBLIC_MAPBOX_TOKEN</code>{" "}
-            in <code>.env</code> to load the map.
+            <code className="font-mono text-ember">
+              NEXT_PUBLIC_MAPBOX_TOKEN
+            </code>{" "}
+            in <code className="font-mono text-ink">.env</code> to load the
+            globe.
           </p>
         </div>
       )}
-
-      {/* Online count */}
-      <div className="absolute bottom-4 left-4 rounded-full bg-zinc-900/80 px-3 py-1.5 text-xs text-zinc-300 backdrop-blur">
-        {peers.length} online
-      </div>
     </div>
   );
 }
