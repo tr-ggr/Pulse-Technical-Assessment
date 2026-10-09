@@ -11,6 +11,9 @@ import type { SignalType } from "@/lib/types";
 //                         │ decline / end (cancel) / timeout ▲
 //                         └──────────────────────────────────┘
 //
+// Two requests at each other are a yes from both: the second one pairs them
+// on the spot (requesting ──request back──▶ paired), no accept needed.
+//
 // No interactive transactions (unreliable over a PgBouncer pooler): every
 // step is a conditional updateMany whose `count` says whether it applied.
 
@@ -19,7 +22,7 @@ import type { SignalType } from "@/lib/types";
 const REQUEST_GRACE_MS = 5_000;
 
 export type Verdict =
-  | { ok: true; deliver: boolean }
+  | { ok: true; deliver: boolean; matched?: boolean }
   | { ok: false; status: number; error: string };
 
 const DELIVER: Verdict = { ok: true, deliver: true };
@@ -88,7 +91,58 @@ async function request(fromId: string, toId: string): Promise<Verdict> {
   ) {
     await sendServerSignal(fromId, me.requestTo, "end");
   }
+
+  // They already asked us: tapping them back connects you both. The other
+  // side learns through an `accept`, the caller through `matched`.
+  const paired = await matchMutual(fromId, toId);
+  if (paired === 2) {
+    await rememberPair(fromId, toId);
+    await sendServerSignal(fromId, toId, "accept");
+    return { ok: true, deliver: false, matched: true };
+  }
+  if (paired === 1) {
+    // Only half applied (shouldn't happen): undo it, keep our request.
+    await prisma.presence.updateMany({
+      where: {
+        OR: [
+          { id: fromId, peerId: toId },
+          { id: toId, peerId: fromId },
+        ],
+      },
+      data: { busy: false, peerId: null },
+    });
+    await prisma.presence.updateMany({
+      where: { id: fromId, busy: false },
+      data: { requestTo: toId, requestAt: new Date() },
+    });
+  }
   return DELIVER;
+}
+
+// Pair two users whose live requests point at each other, in one statement:
+// both rows or neither. Run after writing our own request, so of two requests
+// racing each other the later match always sees both; if both try, the row
+// locks plus the `busy = false` re-check let only one through. Returns how
+// many rows it paired.
+async function matchMutual(a: string, b: string): Promise<number> {
+  const cutoff = requestCutoff();
+  return prisma.$executeRaw`
+    UPDATE "Presence" p SET
+      "busy" = true,
+      "peerId" = p."requestTo",
+      "requestTo" = NULL,
+      "requestAt" = NULL
+    WHERE p."id" IN (${a}, ${b})
+      AND p."busy" = false
+      AND p."requestTo" IN (${a}, ${b})
+      AND p."requestTo" <> p."id"
+      AND p."requestAt" >= ${cutoff}
+      AND EXISTS (
+        SELECT 1 FROM "Presence" o
+        WHERE o."id" = p."requestTo"
+          AND o."requestTo" = p."id"
+          AND o."busy" = false
+          AND o."requestAt" >= ${cutoff})`;
 }
 
 // `fromId` accepts the request that `toId` made.

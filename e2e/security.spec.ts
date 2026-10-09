@@ -140,6 +140,40 @@ test("an accept without a request is refused and pairs nobody", async () => {
   expect((await poll(bob)).signals).toEqual([]);
 });
 
+test("two requests at each other pair them, with no accept", async () => {
+  const alice = await joinAs(MANILA);
+  const bob = await joinAs(CEBU);
+  const carol = await joinAs(DAVAO);
+
+  expect((await signal(alice, bob.id, "request")).status()).toBe(200);
+  const back = await signal(bob, alice.id, "request");
+  expect(back.status()).toBe(200);
+  expect(await back.json()).toMatchObject({ matched: true });
+
+  // Alice hears it as an accept and starts the call; SDP now flows.
+  const inbox = (await poll(alice)).signals;
+  expect(inbox.map((s) => [s.type, s.fromId])).toEqual([["accept", bob.id]]);
+  expect((await signal(alice, bob.id, "offer", OFFER)).status()).toBe(200);
+  const peers = (await poll(carol)).peers;
+  expect(peers.find((p) => p.id === alice.id)?.busy).toBe(true);
+  expect(peers.find((p) => p.id === bob.id)?.busy).toBe(true);
+});
+
+test("two requests sent at the same instant still pair exactly once", async () => {
+  const alice = await joinAs(MANILA);
+  const bob = await joinAs(CEBU);
+
+  const [ab, ba] = await Promise.all([
+    signal(alice, bob.id, "request"),
+    signal(bob, alice.id, "request"),
+  ]);
+  expect(ab.status()).toBe(200);
+  expect(ba.status()).toBe(200);
+  const matched = [await ab.json(), await ba.json()].filter((r) => r.matched);
+  expect(matched).toHaveLength(1);
+  expect((await signal(alice, bob.id, "offer", OFFER)).status()).toBe(200);
+});
+
 test("SDP and ICE only flow between connected users, in WebRTC's shape", async () => {
   const alice = await joinAs(MANILA);
   const bob = await joinAs(CEBU);

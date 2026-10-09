@@ -81,7 +81,11 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: verdict.error }, { status: verdict.status });
   }
   if (!verdict.deliver) {
-    return Response.json({ ok: true, autoDeclined: true });
+    return Response.json(
+      verdict.matched
+        ? { ok: true, matched: true }
+        : { ok: true, autoDeclined: true },
+    );
   }
 
   await prisma.signal.create({

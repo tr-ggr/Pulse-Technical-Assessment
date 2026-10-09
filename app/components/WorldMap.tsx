@@ -331,7 +331,10 @@ export default function WorldMap({
           const el = createPeerEl(peer.id);
           el.addEventListener("click", (e) => {
             e.stopPropagation();
-            if (canConnectRef.current && el.dataset.busy !== "true") {
+            // Tapping back someone who asked you is a yes, card or not.
+            const caller = el.dataset.state === "caller";
+            const free = el.dataset.busy !== "true";
+            if (caller || (canConnectRef.current && free)) {
               onPeerClickRef.current(peer.id);
             }
           });

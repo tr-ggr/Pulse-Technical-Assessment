@@ -33,7 +33,7 @@ export function createPeerEl(id: string): HTMLButtonElement {
 function tipFor(view: DotView): string {
   if (view.state === "partner") return "Your conversation";
   if (view.state === "target") return "Waiting for an answer…";
-  if (view.state === "caller") return "Wants to connect";
+  if (view.state === "caller") return "Wants to connect — tap to accept";
   if (view.busy) return "In a conversation";
   if (!view.canConnect) return "Finish your chat first";
   return "Tap to connect";
