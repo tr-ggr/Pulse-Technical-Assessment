@@ -82,12 +82,18 @@ export default function Home() {
       onControl: (ctrl) => handleControl(ctrl),
       onRemoteStream: (stream) => setRemoteStream(stream),
       onConnectionState: (state) => {
+        if (peerRef.current !== ps) return;
         if (state === "failed") {
           teardown("Connection failed (network).");
+        } else if (state === "closed") {
+          teardown("Stranger disconnected.");
         }
       },
       onChannelOpen: () => {
         setConn({ kind: "connected", peerId });
+      },
+      onChannelClose: () => {
+        if (peerRef.current === ps) teardown("Stranger disconnected.");
       },
     });
     peerRef.current = ps;
