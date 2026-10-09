@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { releaseUsers } from "@/lib/pairing";
 import { STALE_MS, SIGNAL_TTL_MS } from "@/lib/presence";
 import type { PollResponse } from "@/lib/types";
 
@@ -29,7 +30,18 @@ export async function GET(request: NextRequest) {
 
   // 2) Reap stale presence rows and orphaned signals (independent deletes —
   // no atomicity needed, and avoids transactions over a PgBouncer pooler).
-  await prisma.presence.deleteMany({ where: { lastSeen: { lt: staleCutoff } } });
+  // Stale users who were mid-connection free + notify their partner first.
+  const stale = await prisma.presence.findMany({
+    where: { lastSeen: { lt: staleCutoff } },
+    select: { id: true },
+  });
+  if (stale.length > 0) {
+    const staleIds = stale.map((p) => p.id);
+    await releaseUsers(staleIds);
+    await prisma.presence.deleteMany({
+      where: { id: { in: staleIds }, lastSeen: { lt: staleCutoff } },
+    });
+  }
   await prisma.signal.deleteMany({ where: { createdAt: { lt: signalCutoff } } });
 
   // 3) Online peers, excluding self.
