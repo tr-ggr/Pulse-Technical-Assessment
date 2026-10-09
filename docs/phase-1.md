@@ -25,9 +25,31 @@ there are more.
   using different message tags.
 - I traced each state flag (`busy`, `lastSeen`, signal mailbox) through every
   transition, asking "who clears this, and when?"
-- I confirmed each fix in two browser windows (normal + incognito, mocked
-  geolocation). A Playwright test with two browser contexts replays the whole
-  flow (`npm run e2e`).
+- I confirm fixes with two browsers: a manual pass (normal + incognito window,
+  mocked geolocation), plus a Playwright test with two browser contexts that
+  replays the whole flow (`npm run e2e`, see `e2e/two-users.spec.ts`).
+
+## Pairing model (introduced by the B4/S2 fixes)
+
+`Presence.peerId` records who each user is connected to. It's set for both
+users on `accept` and cleared on `end`/`decline`, but only for the pair
+itself. When a user leaves or goes stale, `releaseUsers` (`lib/pairing.ts`)
+frees their partner and drops an `end` into the partner's inbox. With that,
+"if either user disconnects, the chat ends for both" (`docs/requirements.md`)
+holds even when a tab crashes rather than closing cleanly.
+
+## Verification
+
+- `npx tsc --noEmit` and `npm run lint` are clean.
+- Runtime check: `npx prisma db push` (adds `peerId`), then `npm run e2e` and the
+  manual two-window checklist:
+  - dots visible
+  - connect and chat both ways
+  - video start and end
+  - hang up and reconnect
+  - close a tab mid-chat: the partner sees "Stranger disconnected" and the dot
+    disappears within about 15 s
+  - leave a tab in the background for more than 15 s: it re-appears
 
 ## Findings
 
