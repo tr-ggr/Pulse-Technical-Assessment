@@ -1,9 +1,21 @@
 export type DescType = "offer" | "answer" | "ice";
-export type PeerControl =
-  | "video-request"
-  | "video-accept"
-  | "video-decline"
-  | "video-end";
+const PEER_CONTROLS = [
+  "video-request",
+  "video-accept",
+  "video-decline",
+  "video-end",
+  // Mid-call media state, so the other side can show "muted" / "camera off"
+  // instead of silence and a frozen-looking black frame.
+  "mic-on",
+  "mic-off",
+  "cam-on",
+  "cam-off",
+] as const;
+export type PeerControl = (typeof PEER_CONTROLS)[number];
+
+function isPeerControl(value: unknown): value is PeerControl {
+  return PEER_CONTROLS.includes(value as PeerControl);
+}
 
 interface PeerCallbacks {
   onSignal: (type: DescType, payload: string) => void;
@@ -84,8 +96,8 @@ export class PeerSession {
         const msg = JSON.parse(e.data as string);
         if (msg.t === "chat" && typeof msg.text === "string") {
           this.cb.onChat(msg.text);
-        } else if (msg.t === "ctrl" && typeof msg.ctrl === "string") {
-          this.cb.onControl(msg.ctrl as PeerControl);
+        } else if (msg.t === "ctrl" && isPeerControl(msg.ctrl)) {
+          this.cb.onControl(msg.ctrl);
         }
       } catch {}
     };

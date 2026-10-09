@@ -1,8 +1,8 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
-// Full Phase 1 flow with two real browser contexts (two strangers):
-// see each other → connect → chat both ways → video → hang up → reconnect →
-// one closes the tab → the other's chat ends and the dot disappears.
+// Full flow with two real browser contexts (two strangers):
+// see each other → connect → chat both ways → video (mute) → hang up →
+// reconnect → one closes the tab → the other's chat ends and the dot goes.
 //
 // Runs against the real local stack, so it needs DATABASE_URL and
 // NEXT_PUBLIC_MAPBOX_TOKEN. Use an otherwise idle database: the test expects
@@ -41,12 +41,15 @@ function remoteVideoHasTrack(page: Page) {
 async function connect(a: Page, b: Page) {
   const dot = a.locator(".pulse-dot");
   await expect(dot).toHaveCount(1);
-  // Busy peers are dimmed; wait until B is free before tapping.
-  await expect(dot).toHaveCSS("opacity", "1");
+  // Busy peers can't be tapped; wait until B is free. (Not marker opacity:
+  // on the globe Mapbox writes that itself to fade dots past the horizon.)
+  await expect(dot).toHaveAttribute("data-busy", "false");
   await dot.click();
   await expect(a.getByText("Requesting connection…")).toBeVisible();
 
   await expect(b.getByText("A stranger wants to connect")).toBeVisible();
+  // The card says roughly where the request comes from (Manila ↔ Cebu).
+  await expect(b.getByText(/~\d[\d,]* km away/)).toBeVisible();
   await b.getByRole("button", { name: "Accept" }).click();
 
   // "Connected" only shows once the WebRTC data channel is open.
@@ -88,6 +91,12 @@ test("two strangers can see, connect, chat, video, reconnect and leave", async (
   // it must be on screen (B6). click() alone would auto-scroll and hide this.
   await expect(a.getByRole("button", { name: "End video" })).toBeInViewport();
   await expect(b.getByRole("button", { name: "End video" })).toBeInViewport();
+  // Muting is local (track.enabled) and announced to the other side.
+  const mute = a.getByRole("button", { name: "Mute microphone" });
+  await mute.click();
+  await expect(mute).toHaveAttribute("aria-pressed", "true");
+  await expect(b.getByText("Muted", { exact: true })).toBeVisible();
+
   await a.getByRole("button", { name: "End video" }).click();
   await expect(a.getByRole("button", { name: "End video" })).toBeHidden();
   await expect(b.getByRole("button", { name: "End video" })).toBeHidden();
@@ -98,8 +107,13 @@ test("two strangers can see, connect, chat, video, reconnect and leave", async (
   await connect(a, b);
 
   // B closes the tab mid-chat: A's chat ends (S2) and B's dot goes away (B1).
+  // A killed tab can't always say goodbye, so A learns of it from either the
+  // server's stale reaper ("Stranger disconnected.") or ICE failing ("Lost the
+  // connection…"), whichever is first. Assert the outcome: A's chat closes.
   await bob.context.close();
-  await expect(a.getByText("Stranger disconnected.")).toBeVisible();
+  await expect(a.getByRole("button", { name: "End", exact: true })).toBeHidden({
+    timeout: 40_000,
+  });
   await expect(a.locator(".pulse-dot")).toHaveCount(0, { timeout: 30_000 });
 
   await alice.context.close();

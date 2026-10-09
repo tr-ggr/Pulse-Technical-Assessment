@@ -1,15 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import EntryGate from "./components/EntryGate";
-import WorldMap from "./components/WorldMap";
-import ConnectionPrompt from "./components/ConnectionPrompt";
+import WorldMap, { type WorldMapHandle } from "./components/WorldMap";
+import Hud from "./components/Hud";
+import Toasts from "./components/Toasts";
+import RequestingPill from "./components/RequestingPill";
+import RequestCard from "./components/RequestCard";
+import { useToasts } from "./hooks/useToasts";
+import { useAttention } from "./hooks/useAttention";
+import { playChime } from "@/lib/chime";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
-import VideoPanel from "./components/VideoPanel";
+import VideoPanel, { type MediaState } from "./components/VideoPanel";
 import { join, leave, poll, sendSignal, SessionGoneError } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
-import { POLL_INTERVAL_MS } from "@/lib/presence";
+import { POLL_INTERVAL_MS, REQUEST_TIMEOUT_MS } from "@/lib/presence";
 import { type PeerDot, type SignalMsg } from "@/lib/types";
+import { describeStranger } from "@/lib/identity";
 
 type Conn =
   | { kind: "idle" }
@@ -20,19 +28,24 @@ type Conn =
 
 type VideoState = "none" | "requesting" | "incoming" | "active";
 
-const REQUEST_TIMEOUT_MS = 30_000;
+const MEDIA_ON: MediaState = { mic: true, cam: true };
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
   const [sessionId] = useState(() => crypto.randomUUID());
   const [peers, setPeers] = useState<PeerDot[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [notice, setNotice] = useState<string | null>(null);
+  const { toasts, push: showNotice, dismiss: dismissToast } = useToasts();
+  // Hide the "tap a dot" hint once someone has figured it out.
+  const [hasRequested, setHasRequested] = useState(false);
+  const mapHandle = useRef<WorldMapHandle>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(
-    null,
-  );
+  const [remoteMedia, setRemoteMedia] = useState<MediaState>(MEDIA_ON);
+  const [myLocation, setMyLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
 
   const [conn, _setConn] = useState<Conn>({ kind: "idle" });
   const connRef = useRef<Conn>(conn);
@@ -54,11 +67,6 @@ export default function Home() {
   // Raw location, kept only in memory so we can re-join if the server reaped us.
   const locationRef = useRef<{ lat: number; lng: number } | null>(null);
 
-  function showNotice(text: string) {
-    setNotice(text);
-    window.setTimeout(() => setNotice(null), 3500);
-  }
-
   function addMessage(mine: boolean, text: string) {
     setMessages((prev) => [...prev, { id: msgId.current++, mine, text }]);
   }
@@ -69,6 +77,7 @@ export default function Home() {
     peerRef.current = null;
     setLocalStream(null);
     setRemoteStream(null);
+    setRemoteMedia(MEDIA_ON);
     setVideo("none");
     setMessages([]);
     setConn({ kind: "idle" });
@@ -86,7 +95,13 @@ export default function Home() {
       onConnectionState: (state) => {
         if (peerRef.current !== ps) return;
         if (state === "failed") {
-          teardown("Connection failed (network).");
+          // Once connected, a failure is almost always the stranger vanishing
+          // (tab killed, network gone) before any "end" could reach us.
+          teardown(
+            connRef.current.kind === "connected"
+              ? "Lost the connection to the stranger."
+              : "Couldn’t connect. A network may be blocking it.",
+          );
         } else if (state === "closed") {
           teardown("Stranger disconnected.");
         }
@@ -131,13 +146,23 @@ export default function Home() {
         ps?.stopVideo();
         setLocalStream(null);
         setRemoteStream(null);
+        setRemoteMedia(MEDIA_ON);
         setVideo("none");
+        break;
+      case "mic-on":
+      case "mic-off":
+        setRemoteMedia((m) => ({ ...m, mic: ctrl === "mic-on" }));
+        break;
+      case "cam-on":
+      case "cam-off":
+        setRemoteMedia((m) => ({ ...m, cam: ctrl === "cam-on" }));
         break;
     }
   }
 
   function requestConnection(peerId: string) {
     if (connRef.current.kind !== "idle") return;
+    setHasRequested(true);
     setConn({ kind: "requesting", peerId });
     void sendSignal(sessionId, peerId, "request");
     requestTimer.current = setTimeout(() => {
@@ -213,6 +238,7 @@ export default function Home() {
     ps?.sendControl("video-end");
     setLocalStream(null);
     setRemoteStream(null);
+    setRemoteMedia(MEDIA_ON);
     setVideo("none");
   }
 
@@ -323,94 +349,188 @@ export default function Home() {
     };
   }, [sessionId, phase]);
 
+  const inChat = conn.kind === "connecting" || conn.kind === "connected";
+
+  // Esc backs out of whatever is pending: your request, their request, or
+  // their video request. It never hangs up a conversation you're in.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const c = connRef.current.kind;
+      if (c === "requesting") cancelRequest();
+      else if (c === "incoming") declineIncoming();
+      else if (videoRef.current === "incoming") declineVideo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  // When a chat closes, hand keyboard focus back to the map instead of
+  // dropping it on <body>.
+  const wasInChat = useRef(false);
+  useEffect(() => {
+    if (wasInChat.current && !inChat) {
+      document.querySelector<HTMLElement>(".mapboxgl-canvas")?.focus({
+        preventScroll: true,
+      });
+    }
+    wasInChat.current = inChat;
+  }, [inChat]);
+
+  // Someone is waiting on you: flash the tab title and chime if you're away.
+  const incomingFrom = conn.kind === "incoming" ? conn.peerId : null;
+  const videoAsked = video === "incoming";
+  useAttention(
+    incomingFrom
+      ? "● A stranger wants to connect"
+      : videoAsked
+        ? "● Video call request"
+        : null,
+  );
+  useEffect(() => {
+    if ((incomingFrom || videoAsked) && document.hidden) playChime();
+  }, [incomingFrom, videoAsked]);
+
   async function handleReady(lat: number, lng: number) {
-    setMyLocation({ lat, lng });
     locationRef.current = { lat, lng };
     await join(sessionId, lat, lng);
+    setMyLocation({ lat, lng });
     setPhase("live");
   }
 
-  if (phase === "gate") {
-    return <EntryGate onReady={handleReady} />;
-  }
-
-  const inChat = conn.kind === "connecting" || conn.kind === "connected";
+  const link =
+    conn.kind === "idle" ? null : { peerId: conn.peerId, phase: conn.kind };
+  // Whoever you're linked with, as a colour + distance. They stay in `peers`
+  // (as busy) for the whole call, so this only loses distance if they vanish.
+  const linkPeer = link
+    ? (peers.find((p) => p.id === link.peerId) ?? null)
+    : null;
+  const stranger = link
+    ? describeStranger(link.peerId, linkPeer, myLocation)
+    : null;
 
   return (
-    <main className="fixed inset-0 overflow-hidden">
-      <WorldMap
-        peers={peers}
-        me={myLocation}
-        onPeerClick={requestConnection}
-        canConnect={conn.kind === "idle"}
-      />
+    <MotionConfig reducedMotion="user">
+      <main
+        className="fixed inset-0 overflow-hidden bg-space"
+        data-chat={inChat ? "open" : undefined}
+      >
+        <WorldMap
+          ref={mapHandle}
+          mode={phase === "gate" ? "intro" : "live"}
+          peers={peers}
+          me={myLocation}
+          link={link}
+          onPeerClick={requestConnection}
+          canConnect={conn.kind === "idle"}
+        />
 
-      {notice && (
-        <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          {notice}
+        <AnimatePresence>
+          {phase === "gate" && <EntryGate key="gate" onReady={handleReady} />}
+        </AnimatePresence>
+
+        {phase === "live" && (
+          <Hud
+            online={peers.length}
+            onRecenter={() => mapHandle.current?.recenter()}
+          />
+        )}
+
+        {/* Top-centre stack: what you're waiting on, then transient notices. */}
+        <div
+          className={`pointer-events-none absolute inset-x-0 top-[calc(max(1rem,env(safe-area-inset-top))+3.25rem)] z-30 flex flex-col items-center gap-2 px-4 md:top-5 ${
+            inChat ? "lg:pr-[432px]" : ""
+          }`}
+        >
+          <AnimatePresence>
+            {conn.kind === "requesting" && stranger && (
+              <RequestingPill
+                key={conn.peerId}
+                stranger={stranger}
+                onCancel={cancelRequest}
+              />
+            )}
+          </AnimatePresence>
+          <Toasts toasts={toasts} onDismiss={dismissToast} />
         </div>
-      )}
 
-      {conn.kind === "requesting" && (
-        <div className="absolute left-1/2 top-20 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          <span>Requesting connection…</span>
-          <button
-            onClick={cancelRequest}
-            className="rounded-full bg-zinc-700 px-3 py-1 text-xs hover:bg-zinc-600"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
+        <AnimatePresence>
+          {phase === "live" && conn.kind === "idle" && !hasRequested && (
+            <motion.p
+              key={peers.length === 0 ? "quiet" : "hint"}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                transition: { delay: 2.6, duration: 0.6 },
+              }}
+              exit={{ opacity: 0, y: 6, transition: { duration: 0.25 } }}
+              className="glass pointer-events-none absolute bottom-[max(2.5rem,calc(env(safe-area-inset-bottom)+1.5rem))] left-1/2 z-20 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-full px-4 py-2.5 text-center text-sm text-ink-muted"
+            >
+              {peers.length === 0 ? (
+                <>
+                  It’s quiet right now. Your dot is live — anyone who joins will
+                  see you.
+                </>
+              ) : (
+                <>
+                  Tap a <span className="text-ink">glowing dot</span> to say
+                  hello
+                </>
+              )}
+            </motion.p>
+          )}
+        </AnimatePresence>
 
-      {conn.kind === "incoming" && (
-        <ConnectionPrompt
-          title="A stranger wants to connect"
-          acceptLabel="Accept"
-          declineLabel="Decline"
-          onAccept={acceptIncoming}
-          onDecline={declineIncoming}
-        />
-      )}
+        <AnimatePresence>
+          {conn.kind === "incoming" && stranger && (
+            <RequestCard
+              key={conn.peerId}
+              stranger={stranger}
+              onAccept={acceptIncoming}
+              onDecline={declineIncoming}
+            />
+          )}
+        </AnimatePresence>
 
-      {inChat && (
-        <ChatPanel
-          messages={messages}
-          connected={conn.kind === "connected"}
-          videoBusy={video !== "none"}
-          onSend={(text) => {
-            peerRef.current?.sendChat(text);
-            addMessage(true, text);
-          }}
-          onStartVideo={startVideoRequest}
-          onEnd={endConnection}
-        />
-      )}
+        <AnimatePresence>
+          {inChat && stranger && (
+            <ChatPanel
+              key={conn.peerId}
+              messages={messages}
+              connected={conn.kind === "connected"}
+              stranger={stranger}
+              video={video}
+              onSend={(text) => {
+                peerRef.current?.sendChat(text);
+                addMessage(true, text);
+              }}
+              onStartVideo={startVideoRequest}
+              onAcceptVideo={acceptVideo}
+              onDeclineVideo={declineVideo}
+              onEnd={endConnection}
+            />
+          )}
+        </AnimatePresence>
 
-      {video === "requesting" && (
-        <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          Waiting for stranger to accept video…
-        </div>
-      )}
-
-      {video === "incoming" && (
-        <ConnectionPrompt
-          title="Start video call?"
-          subtitle="The stranger wants to turn on video."
-          acceptLabel="Accept"
-          declineLabel="Decline"
-          onAccept={acceptVideo}
-          onDecline={declineVideo}
-        />
-      )}
-
-      {video === "active" && (
-        <VideoPanel
-          localStream={localStream}
-          remoteStream={remoteStream}
-          onEnd={endVideo}
-        />
-      )}
-    </main>
+        <AnimatePresence>
+          {video === "active" && stranger && (
+            <VideoPanel
+              key="call"
+              localStream={localStream}
+              remoteStream={remoteStream}
+              remoteMedia={remoteMedia}
+              stranger={stranger}
+              onLocalMediaChange={(next) => {
+                const ps = peerRef.current;
+                ps?.sendControl(next.mic ? "mic-on" : "mic-off");
+                ps?.sendControl(next.cam ? "cam-on" : "cam-off");
+              }}
+              onEnd={endVideo}
+            />
+          )}
+        </AnimatePresence>
+      </main>
+    </MotionConfig>
   );
 }
