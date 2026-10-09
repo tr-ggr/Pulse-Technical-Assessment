@@ -10,7 +10,13 @@ import RequestingPill from "./components/RequestingPill";
 import RequestCard from "./components/RequestCard";
 import { useToasts } from "./hooks/useToasts";
 import { useAttention } from "./hooks/useAttention";
-import { playChime } from "@/lib/chime";
+import { useInteractionSounds } from "./hooks/useInteractionSounds";
+import {
+  playSound,
+  startMusic,
+  stopMusic,
+  type SoundName,
+} from "@/lib/sound";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel, {
   type MediaState,
@@ -55,7 +61,11 @@ export default function Home() {
   // Why we were sent back to the gate (a network pause), if we were.
   const [gateNotice, setGateNotice] = useState<string | undefined>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const { toasts, push: showNotice, dismiss: dismissToast } = useToasts();
+  const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
+  const showNotice = (text: string, sound: SoundName = "notice") => {
+    playSound(sound);
+    pushToast(text);
+  };
   // Hide the "tap a dot" hint once someone has figured it out.
   const [hasRequested, setHasRequested] = useState(false);
   const mapHandle = useRef<WorldMapHandle>(null);
@@ -122,7 +132,8 @@ export default function Home() {
     setVideo("none");
     setMessages([]);
     setConn({ kind: "idle" });
-    if (message) showNotice(message);
+    // A message means the call ended on us, not by our own click.
+    if (message) showNotice(message, "disconnect");
   }
 
   function startPeer(peerId: string, initiator: boolean) {
@@ -130,7 +141,10 @@ export default function Home() {
       onSignal: (type: DescType, payload: string) => {
         void signal(peerId, type, payload);
       },
-      onChat: (text) => addMessage(false, text),
+      onChat: (text) => {
+        playSound("receive");
+        addMessage(false, text);
+      },
       onControl: (ctrl) => handleControl(ctrl),
       onRemoteStream: (stream) => setRemoteStream(stream),
       onConnectionState: (state) => {
@@ -148,6 +162,7 @@ export default function Home() {
         }
       },
       onChannelOpen: () => {
+        playSound("connect");
         setConn({ kind: "connected", peerId });
       },
       onChannelClose: () => {
@@ -167,6 +182,7 @@ export default function Home() {
         if (videoRef.current === "requesting" && ps) {
           ps.startVideo()
             .then((stream) => {
+              playSound("connect");
               setLocalStream(stream);
               setVideo("active");
             })
@@ -211,6 +227,7 @@ export default function Home() {
   function requestConnection(peerId: string) {
     if (connRef.current.kind !== "idle") return;
     setHasRequested(true);
+    playSound("request");
     setConn({ kind: "requesting", peerId });
     void signal(peerId, "request").then((status) => {
       if (!isStill("requesting", peerId)) return;
@@ -300,6 +317,7 @@ export default function Home() {
     if (!ps) return;
     ps.startVideo()
       .then((stream) => {
+        playSound("connect");
         setLocalStream(stream);
         ps.sendControl("video-accept");
         setVideo("active");
@@ -494,7 +512,7 @@ export default function Home() {
     wasInChat.current = inChat;
   }, [inChat]);
 
-  // Someone is waiting on you: flash the tab title and chime if you're away.
+  // Someone is waiting on you: chime, and flash the tab title if you're away.
   const incomingFrom = conn.kind === "incoming" ? conn.peerId : null;
   const videoAsked = video === "incoming";
   useAttention(
@@ -505,8 +523,19 @@ export default function Home() {
         : null,
   );
   useEffect(() => {
-    if ((incomingFrom || videoAsked) && document.hidden) playChime();
+    if (incomingFrom || videoAsked) playSound("incoming");
   }, [incomingFrom, videoAsked]);
+
+  // Ambient music while you're on the map or texting; it steps aside for a
+  // video call and drifts back in when the call ends.
+  const musicOn = phase === "live" && video !== "active";
+  useEffect(() => {
+    if (!musicOn) return;
+    startMusic();
+    return stopMusic;
+  }, [musicOn]);
+
+  useInteractionSounds();
 
   async function handleReady(lat: number, lng: number) {
     locationRef.current = { lat, lng };
