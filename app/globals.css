@@ -416,3 +416,27 @@ html {
   border: 1.5px solid var(--dot, var(--color-ink-faint));
   animation: sonar 2.4s var(--ease-out-expo) infinite;
 }
+
+/* ── Reduced motion ─────────────────────────────────────────────────────────
+   Ambient motion stops; state stays legible through static rings and glows.
+   The request countdown keeps running: it carries information, and it's a
+   slow linear sweep. (Motion components follow MotionConfig reducedMotion.) */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot__halo,
+  .pulse-me__ring,
+  .call-sonar,
+  .radar-ring {
+    animation: none;
+    opacity: 0;
+  }
+  .pulse-dot__core,
+  .orb,
+  .shimmer,
+  .pulse-dot[data-state]::after {
+    animation: none;
+  }
+  .pulse-dot__core,
+  .pulse-dot__tip {
+    transition: none;
+  }
+}

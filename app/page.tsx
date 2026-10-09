@@ -349,6 +349,34 @@ export default function Home() {
     };
   }, [sessionId, phase]);
 
+  const inChat = conn.kind === "connecting" || conn.kind === "connected";
+
+  // Esc backs out of whatever is pending: your request, their request, or
+  // their video request. It never hangs up a conversation you're in.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const c = connRef.current.kind;
+      if (c === "requesting") cancelRequest();
+      else if (c === "incoming") declineIncoming();
+      else if (videoRef.current === "incoming") declineVideo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  // When a chat closes, hand keyboard focus back to the map instead of
+  // dropping it on <body>.
+  const wasInChat = useRef(false);
+  useEffect(() => {
+    if (wasInChat.current && !inChat) {
+      document.querySelector<HTMLElement>(".mapboxgl-canvas")?.focus({
+        preventScroll: true,
+      });
+    }
+    wasInChat.current = inChat;
+  }, [inChat]);
+
   // Someone is waiting on you: flash the tab title and chime if you're away.
   const incomingFrom = conn.kind === "incoming" ? conn.peerId : null;
   const videoAsked = video === "incoming";
@@ -370,7 +398,6 @@ export default function Home() {
     setPhase("live");
   }
 
-  const inChat = conn.kind === "connecting" || conn.kind === "connected";
   const link =
     conn.kind === "idle" ? null : { peerId: conn.peerId, phase: conn.kind };
   // Whoever you're linked with, as a colour + distance. They stay in `peers`
