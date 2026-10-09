@@ -40,16 +40,32 @@ holds even when a tab crashes rather than closing cleanly.
 
 ## Verification
 
-- `npx tsc --noEmit` and `npm run lint` are clean.
-- Runtime check: `npx prisma db push` (adds `peerId`), then `npm run e2e` and the
-  manual two-window checklist:
-  - dots visible
-  - connect and chat both ways
-  - video start and end
-  - hang up and reconnect
-  - close a tab mid-chat: the partner sees "Stranger disconnected" and the dot
-    disappears within about 15 s
-  - leave a tab in the background for more than 15 s: it re-appears
+Run against a fresh Neon project (`aws-ap-southeast-1`) after `prisma migrate deploy`.
+`prisma migrate diff` shows no drift between the database and `schema.prisma`.
+
+- **Static checks:** `npx tsc --noEmit` and `npm run lint` are clean.
+- **Automated:** `npm run e2e` passes (about 40 s). It uses two Chromium contexts
+  (Manila and Cebu) with fake camera and mic, and covers:
+  - see each other, connect
+  - chat both ways
+  - video both ways, with "End video" in the viewport
+  - end video, hang up, reconnect
+  - close one context: the chat ends and the dot disappears
+
+  With the B6 fix reverted, the test fails on `toBeInViewport()`.
+- **Manual (playwright-cli, two headless sessions):**
+
+  | Check | Result |
+  |---|---|
+  | Both dots visible on the real Mapbox map | ✅ |
+  | Connect: request, accept, "Connected" | ✅ |
+  | Chat A→B and B→A | ✅ |
+  | Video: both sides receive live audio and video tracks | ✅ |
+  | End video returns both to chat | ✅ |
+  | Hang up frees both (dots back to full opacity), reconnect works | ✅ |
+  | Clean leave (navigate away mid-chat): partner's chat ends in under 1.6 s, dot gone in about 3.7 s | ✅ |
+  | Hard kill (browser killed, no leave beacon): partner's chat ends and dot disappears in about 20 s, via the stale reaper and `releaseUsers` | ✅ |
+  | All presence rows deleted server-side: both clients get 410, re-join, and see each other again | ✅ |
 
 ## Findings
 
