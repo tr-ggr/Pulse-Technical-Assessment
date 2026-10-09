@@ -31,6 +31,7 @@ import {
   RateLimitedError,
   sendSignal,
   SessionGoneError,
+  type SignalResult,
 } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS, REQUEST_TIMEOUT_MS } from "@/lib/presence";
@@ -112,9 +113,15 @@ export default function Home() {
     return c.kind === kind && "peerId" in c && c.peerId === peerId;
   }
 
-  function signal(toId: string, type: SignalType, payload?: string) {
+  function signal(
+    toId: string,
+    type: SignalType,
+    payload?: string,
+  ): Promise<SignalResult> {
     const token = tokenRef.current;
-    return token ? sendSignal(token, toId, type, payload) : Promise.resolve(0);
+    return token
+      ? sendSignal(token, toId, type, payload)
+      : Promise.resolve({ status: 0, matched: false });
   }
 
   function addMessage(mine: boolean, text: string) {
@@ -225,11 +232,25 @@ export default function Home() {
   }
 
   function requestConnection(peerId: string) {
+    // They asked first and their card is up: tapping them back accepts.
+    if (isStill("incoming", peerId)) return acceptIncoming();
     if (connRef.current.kind !== "idle") return;
     setHasRequested(true);
     playSound("request");
     setConn({ kind: "requesting", peerId });
-    void signal(peerId, "request").then((status) => {
+    void signal(peerId, "request").then(({ status, matched }) => {
+      if (matched) {
+        // They had already asked us, so we're paired. They get an accept and
+        // start the call; we answer, as if we'd accepted their card.
+        if (!isStill("requesting", peerId)) {
+          void signal(peerId, "end");
+          return;
+        }
+        if (requestTimer.current) clearTimeout(requestTimer.current);
+        startPeer(peerId, false);
+        setConn({ kind: "connecting", peerId });
+        return;
+      }
       if (!isStill("requesting", peerId)) return;
       if (status === 429) teardown("Easy — wait a few seconds between requests.");
       else if (status === 409) teardown("Couldn’t send that request.");
@@ -257,7 +278,7 @@ export default function Home() {
     const peerId = connRef.current.peerId;
     startPeer(peerId, false);
     setConn({ kind: "connecting", peerId });
-    void signal(peerId, "accept").then((status) => {
+    void signal(peerId, "accept").then(({ status }) => {
       // The server only pairs us if their request is still live.
       if (status === 409 && isStill("connecting", peerId)) {
         teardown("That request expired.");
@@ -360,8 +381,12 @@ export default function Home() {
   function processSignal(sig: SignalMsg) {
     switch (sig.type) {
       case "request": {
-        if (connRef.current.kind === "idle") {
+        const c = connRef.current;
+        if (c.kind === "idle") {
           setConn({ kind: "incoming", peerId: sig.fromId });
+        } else if ("peerId" in c && c.peerId === sig.fromId) {
+          // We asked them too. Our own request pairs us (or already has), so
+          // this one is a duplicate, never something to decline.
         } else {
           void signal(sig.fromId, "decline");
         }

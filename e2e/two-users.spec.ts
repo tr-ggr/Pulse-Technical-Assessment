@@ -161,6 +161,48 @@ test("two strangers can see, connect, chat, video, reconnect and leave", async (
   expect(cspViolations).toEqual([]);
 });
 
+test("two strangers tapping each other connect straight away", async ({
+  browser,
+}) => {
+  // Same as below: wait out any ghost from the previous test first.
+  const alice = await enter(browser, MANILA);
+  await alice.page.waitForResponse((r) => r.url().includes("/api/poll"));
+  await alice.page.waitForResponse((r) => r.url().includes("/api/poll"));
+  await expect(alice.page.locator(".pulse-dot")).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  const bob = await enter(browser, CEBU);
+  const a = alice.page;
+  const b = bob.page;
+
+  for (const page of [a, b]) {
+    const dot = page.locator(".pulse-dot");
+    await expect(dot).toHaveCount(1);
+    await expect(dot).toHaveAttribute("data-busy", "false");
+  }
+  await Promise.all([
+    a.locator(".pulse-dot").click(),
+    b.locator(".pulse-dot").click(),
+  ]);
+
+  // Nobody gets a card to accept, and nobody is told they were declined.
+  await expect(a.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(b.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(a.getByText("Request declined.")).toHaveCount(0);
+  await expect(b.getByText("Request declined.")).toHaveCount(0);
+
+  await send(a, "we tapped at once");
+  await expect(b.getByText("we tapped at once")).toBeVisible();
+  await send(b, "great minds");
+  await expect(a.getByText("great minds")).toBeVisible();
+
+  await a.getByRole("button", { name: "End", exact: true }).click();
+  await expect(b.getByText("Stranger disconnected.")).toBeVisible();
+  await alice.context.close();
+  await bob.context.close();
+  expect(cspViolations).toEqual([]);
+});
+
 test("the chat guard, then blocking from the chat", async ({
   browser,
 }) => {

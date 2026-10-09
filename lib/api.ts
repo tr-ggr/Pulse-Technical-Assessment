@@ -87,6 +87,12 @@ export async function poll(token: string): Promise<PollResponse> {
   return res.json();
 }
 
+export interface SignalResult {
+  status: number;
+  // A request that met theirs: the server paired us on the spot.
+  matched: boolean;
+}
+
 // Resolves to the HTTP status (0 on a network error) so callers can react to
 // a rejected signal — e.g. an accept for a request that already expired.
 export async function sendSignal(
@@ -94,16 +100,17 @@ export async function sendSignal(
   toId: string,
   type: SignalType,
   payload?: string,
-): Promise<number> {
+): Promise<SignalResult> {
   try {
     const res = await fetch("/api/signal", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...auth(token) },
       body: JSON.stringify({ toId, type, payload }),
     });
-    return res.status;
+    const body = res.ok ? await res.json().catch(() => null) : null;
+    return { status: res.status, matched: body?.matched === true };
   } catch {
-    return 0;
+    return { status: 0, matched: false };
   }
 }
 
