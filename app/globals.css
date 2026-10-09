@@ -404,3 +404,15 @@ html {
     bottom: min(68dvh, 640px);
   }
 }
+
+/* Waiting for the stranger's camera: rings ripple out from their orb. */
+.call-sonar {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 112px;
+  height: 112px;
+  border-radius: 9999px;
+  border: 1.5px solid var(--dot, var(--color-ink-faint));
+  animation: sonar 2.4s var(--ease-out-expo) infinite;
+}

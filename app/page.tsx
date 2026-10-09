@@ -456,13 +456,19 @@ export default function Home() {
           )}
         </AnimatePresence>
 
-        {video === "active" && (
-          <VideoPanel
-            localStream={localStream}
-            remoteStream={remoteStream}
-            onEnd={endVideo}
-          />
-        )}
+        <AnimatePresence>
+          {video === "active" && stranger && (
+            <VideoPanel
+              key="call"
+              localStream={localStream}
+              remoteStream={remoteStream}
+              remoteMedia={{ mic: true, cam: true }}
+              stranger={stranger}
+              onLocalMediaChange={() => {}}
+              onEnd={endVideo}
+            />
+          )}
+        </AnimatePresence>
       </main>
     </MotionConfig>
   );
