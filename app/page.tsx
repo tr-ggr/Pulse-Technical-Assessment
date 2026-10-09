@@ -6,6 +6,8 @@ import EntryGate from "./components/EntryGate";
 import WorldMap, { type WorldMapHandle } from "./components/WorldMap";
 import Hud from "./components/Hud";
 import Toasts from "./components/Toasts";
+import RequestingPill from "./components/RequestingPill";
+import RequestCard from "./components/RequestCard";
 import { useToasts } from "./hooks/useToasts";
 import ConnectionPrompt from "./components/ConnectionPrompt";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
@@ -14,6 +16,7 @@ import { join, leave, poll, sendSignal, SessionGoneError } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS, REQUEST_TIMEOUT_MS } from "@/lib/presence";
 import { type PeerDot, type SignalMsg } from "@/lib/types";
+import { describeStranger } from "@/lib/identity";
 
 type Conn =
   | { kind: "idle" }
@@ -341,6 +344,14 @@ export default function Home() {
   const inChat = conn.kind === "connecting" || conn.kind === "connected";
   const link =
     conn.kind === "idle" ? null : { peerId: conn.peerId, phase: conn.kind };
+  // Whoever you're linked with, as a colour + distance. They stay in `peers`
+  // (as busy) for the whole call, so this only loses distance if they vanish.
+  const linkPeer = link
+    ? (peers.find((p) => p.id === link.peerId) ?? null)
+    : null;
+  const stranger = link
+    ? describeStranger(link.peerId, linkPeer, myLocation)
+    : null;
 
   return (
     <MotionConfig reducedMotion="user">
@@ -372,6 +383,15 @@ export default function Home() {
             inChat ? "lg:pr-[432px]" : ""
           }`}
         >
+          <AnimatePresence>
+            {conn.kind === "requesting" && stranger && (
+              <RequestingPill
+                key={conn.peerId}
+                stranger={stranger}
+                onCancel={cancelRequest}
+              />
+            )}
+          </AnimatePresence>
           <Toasts toasts={toasts} onDismiss={dismissToast} />
         </div>
 
@@ -403,27 +423,16 @@ export default function Home() {
           )}
         </AnimatePresence>
 
-        {conn.kind === "requesting" && (
-          <div className="absolute left-1/2 top-20 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-            <span>Requesting connection…</span>
-            <button
-              onClick={cancelRequest}
-              className="rounded-full bg-zinc-700 px-3 py-1 text-xs hover:bg-zinc-600"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-
-        {conn.kind === "incoming" && (
-          <ConnectionPrompt
-            title="A stranger wants to connect"
-            acceptLabel="Accept"
-            declineLabel="Decline"
-            onAccept={acceptIncoming}
-            onDecline={declineIncoming}
-          />
-        )}
+        <AnimatePresence>
+          {conn.kind === "incoming" && stranger && (
+            <RequestCard
+              key={conn.peerId}
+              stranger={stranger}
+              onAccept={acceptIncoming}
+              onDecline={declineIncoming}
+            />
+          )}
+        </AnimatePresence>
 
         {inChat && (
           <ChatPanel
