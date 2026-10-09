@@ -12,7 +12,10 @@ import { useToasts } from "./hooks/useToasts";
 import { useAttention } from "./hooks/useAttention";
 import { playChime } from "@/lib/chime";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
-import VideoPanel, { type MediaState } from "./components/VideoPanel";
+import VideoPanel, {
+  type MediaState,
+  type RevealState,
+} from "./components/VideoPanel";
 import {
   join,
   leave,
@@ -36,6 +39,7 @@ type Conn =
 type VideoState = "none" | "requesting" | "incoming" | "active";
 
 const MEDIA_ON: MediaState = { mic: true, cam: true };
+const VEILED: RevealState = { mine: false, theirs: false };
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
@@ -70,6 +74,16 @@ export default function Home() {
     _setVideo(v);
   };
 
+  const [reveal, _setReveal] = useState<RevealState>(VEILED);
+  const revealRef = useRef<RevealState>(reveal);
+  // Every change goes through here so our outgoing camera always matches the
+  // consent state: raw only while both have said yes.
+  const setReveal = (r: RevealState) => {
+    revealRef.current = r;
+    _setReveal(r);
+    void peerRef.current?.setRevealed(r.mine && r.theirs);
+  };
+
   const peerRef = useRef<PeerSession | null>(null);
   const msgId = useRef(0);
   const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,6 +111,7 @@ export default function Home() {
     setLocalStream(null);
     setRemoteStream(null);
     setRemoteMedia(MEDIA_ON);
+    setReveal(VEILED);
     setVideo("none");
     setMessages([]);
     setConn({ kind: "idle" });
@@ -166,7 +181,14 @@ export default function Home() {
         setLocalStream(null);
         setRemoteStream(null);
         setRemoteMedia(MEDIA_ON);
+        setReveal(VEILED);
         setVideo("none");
+        break;
+      case "reveal":
+        setReveal({ ...revealRef.current, theirs: true });
+        break;
+      case "veil":
+        setReveal(VEILED);
         break;
       case "mic-on":
       case "mic-off":
@@ -267,7 +289,20 @@ export default function Home() {
     setLocalStream(null);
     setRemoteStream(null);
     setRemoteMedia(MEDIA_ON);
+    setReveal(VEILED);
     setVideo("none");
+  }
+
+  function revealCamera() {
+    if (revealRef.current.mine) return;
+    peerRef.current?.sendControl("reveal");
+    setReveal({ ...revealRef.current, mine: true });
+  }
+
+  // Either side can drop the veil back over both cameras, at any time.
+  function veilCameras() {
+    peerRef.current?.sendControl("veil");
+    setReveal(VEILED);
   }
 
   function processSignal(sig: SignalMsg) {
@@ -557,12 +592,15 @@ export default function Home() {
               localStream={localStream}
               remoteStream={remoteStream}
               remoteMedia={remoteMedia}
+              reveal={reveal}
               stranger={stranger}
               onLocalMediaChange={(next) => {
                 const ps = peerRef.current;
                 ps?.sendControl(next.mic ? "mic-on" : "mic-off");
                 ps?.sendControl(next.cam ? "cam-on" : "cam-off");
               }}
+              onReveal={revealCamera}
+              onVeil={veilCameras}
               onEnd={endVideo}
             />
           )}

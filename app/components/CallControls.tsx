@@ -70,17 +70,38 @@ function CameraIcon({ off }: { off: boolean }) {
   );
 }
 
+export function VeilIcon({ className = "size-5" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {/* A closed eye: lid and lashes. */}
+      <path d="M3 9.5c2.4 3 5.5 4.5 9 4.5s6.6-1.5 9-4.5M12 14v3M7.2 13l-1.4 2.5M16.8 13l1.4 2.5M3.9 11.1 2.2 13M20.1 11.1l1.7 1.9" />
+    </svg>
+  );
+}
+
 export default function CallControls({
   micOn,
   camOn,
   onToggleMic,
   onToggleCam,
+  onVeil,
   onEnd,
 }: {
   micOn: boolean;
   camOn: boolean;
   onToggleMic: () => void;
   onToggleCam: () => void;
+  // Only while revealed: drop the veil back over both cameras.
+  onVeil?: () => void;
   onEnd: () => void;
 }) {
   return (
@@ -106,6 +127,17 @@ export default function CallControls({
       >
         <CameraIcon off={!camOn} />
       </button>
+      {onVeil && (
+        <button
+          type="button"
+          onClick={onVeil}
+          aria-label="Veil cameras"
+          title="Blur both cameras again"
+          className={`${toggleBase} ${toggleOn}`}
+        >
+          <VeilIcon />
+        </button>
+      )}
       <button
         type="button"
         onClick={onEnd}
