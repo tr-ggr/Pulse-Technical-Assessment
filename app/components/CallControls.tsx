@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { VeilIcon } from "./icons";
 
 function formatElapsed(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -66,24 +67,6 @@ function CameraIcon({ off }: { off: boolean }) {
       <rect x="2.5" y="6" width="13" height="12" rx="3" />
       <path d="m15.5 10.5 6-3.5v10l-6-3.5" />
       {off && <path d="M3 3l18 18" />}
-    </svg>
-  );
-}
-
-export function VeilIcon({ className = "size-5" }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 24 24"
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {/* A closed eye: lid and lashes. */}
-      <path d="M3 9.5c2.4 3 5.5 4.5 9 4.5s6.6-1.5 9-4.5M12 14v3M7.2 13l-1.4 2.5M16.8 13l1.4 2.5M3.9 11.1 2.2 13M20.1 11.1l1.7 1.9" />
     </svg>
   );
 }

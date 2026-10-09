@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import StrangerOrb from "./StrangerOrb";
+import { ShieldIcon } from "./icons";
 import type { Stranger } from "@/lib/identity";
 
 export interface ChatMessage {
@@ -32,6 +33,7 @@ export default function ChatPanel({
   onStartVideo,
   onAcceptVideo,
   onDeclineVideo,
+  onBlock,
   onEnd,
 }: {
   messages: ChatMessage[];
@@ -42,9 +44,11 @@ export default function ChatPanel({
   onStartVideo: () => void;
   onAcceptVideo: () => void;
   onDeclineVideo: () => void;
+  onBlock: (report: boolean) => void;
   onEnd: () => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [safetyOpen, setSafetyOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const isPresent = useIsPresent();
@@ -116,6 +120,16 @@ export default function ChatPanel({
           </div>
         </div>
 
+        <button
+          type="button"
+          onClick={() => setSafetyOpen(true)}
+          aria-label="Safety"
+          aria-haspopup="dialog"
+          title="Block or report"
+          className="grid size-9 place-items-center rounded-full border border-hairline-strong text-ink-muted transition hover:border-ink-faint hover:bg-white/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:size-11"
+        >
+          <ShieldIcon className="size-4" />
+        </button>
         <button
           type="button"
           onClick={onStartVideo}
@@ -322,6 +336,130 @@ export default function ChatPanel({
           </svg>
         </button>
       </form>
+
+      <AnimatePresence>
+        {safetyOpen && (
+          <SafetySheet
+            key="safety"
+            onBlock={onBlock}
+            onClose={() => setSafetyOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </motion.aside>
+  );
+}
+
+// Block / report, inside the chat it applies to. Says plainly what each does
+// and what Pulse can't see, so nobody hesitates to use it.
+function SafetySheet({
+  onBlock,
+  onClose,
+}: {
+  onBlock: (report: boolean) => void;
+  onClose: () => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => cancelRef.current?.focus(), []);
+
+  return (
+    <motion.div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="safety-title"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, transition: { duration: 0.18 } }}
+      onKeyDown={(e) => {
+        // Handled here so the page's Esc (cancel/decline) doesn't also fire.
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
+      className="absolute inset-0 z-10 flex flex-col justify-end bg-night-950/70 backdrop-blur-sm"
+    >
+      <button
+        type="button"
+        aria-label="Close"
+        tabIndex={-1}
+        onClick={onClose}
+        className="flex-1 cursor-default"
+      />
+      <motion.div
+        initial={{ y: 24 }}
+        animate={{ y: 0 }}
+        exit={{ y: 16 }}
+        transition={{ type: "spring", stiffness: 380, damping: 34 }}
+        className="m-3 rounded-card border border-hairline-strong bg-night-800 p-4 shadow-[var(--shadow-glass)]"
+      >
+        <div className="flex items-center gap-2.5 px-1">
+          <ShieldIcon className="size-4 text-ink-muted" />
+          <h3 id="safety-title" className="font-display text-[22px] text-ink">
+            Not feeling right?
+          </h3>
+        </div>
+        <p className="mt-1 px-1 text-[13px] leading-relaxed text-ink-muted text-pretty">
+          Pulse never sees your messages or video — only that you want this
+          stranger gone.
+        </p>
+
+        <div className="mt-3 flex flex-col gap-2">
+          <SafetyAction
+            title="Block"
+            detail="The chat ends. They vanish from your map, and you from theirs."
+            onClick={() => onBlock(false)}
+          />
+          <SafetyAction
+            danger
+            title="Report and block"
+            detail="Also counts against their connection. Reports from two different people pause it for 30 minutes."
+            onClick={() => onBlock(true)}
+          />
+        </div>
+
+        <button
+          ref={cancelRef}
+          type="button"
+          onClick={onClose}
+          className="mt-2 h-11 w-full rounded-full text-sm font-medium text-ink-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70"
+        >
+          Cancel
+        </button>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function SafetyAction({
+  title,
+  detail,
+  danger = false,
+  onClick,
+}: {
+  title: string;
+  detail: string;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 ${
+        danger
+          ? "border-danger/30 bg-danger/10 hover:bg-danger/20 focus-visible:ring-danger/70"
+          : "border-hairline-strong bg-white/[0.03] hover:bg-white/[0.07] focus-visible:ring-ember/70"
+      }`}
+    >
+      <span
+        className={`block text-sm font-semibold ${danger ? "text-[#ffb3b3]" : "text-ink"}`}
+      >
+        {title}
+      </span>
+      <span className="mt-0.5 block text-[13px] leading-snug text-ink-muted">
+        {detail}
+      </span>
+    </button>
   );
 }

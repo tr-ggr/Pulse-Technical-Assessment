@@ -9,7 +9,8 @@ import {
   useMotionValue,
   type PanInfo,
 } from "motion/react";
-import CallControls, { CallTimer, VeilIcon } from "./CallControls";
+import CallControls, { CallTimer } from "./CallControls";
+import { ShieldIcon, VeilIcon } from "./icons";
 import StrangerOrb from "./StrangerOrb";
 import type { Stranger } from "@/lib/identity";
 import { useGuardian, type GuardianStatus } from "../hooks/useGuardian";
@@ -38,6 +39,7 @@ export default function VideoPanel({
   onLocalMediaChange,
   onReveal,
   onVeil,
+  onReport,
   onEnd,
 }: {
   localStream: MediaStream | null;
@@ -48,6 +50,7 @@ export default function VideoPanel({
   onLocalMediaChange: (state: MediaState) => void;
   onReveal: () => void;
   onVeil: () => void;
+  onReport: () => void;
   onEnd: () => void;
 }) {
   const localRef = useRef<HTMLVideoElement>(null);
@@ -180,6 +183,7 @@ export default function VideoPanel({
               key="guardian"
               onKeepVeiled={keepVeiled}
               onShowAnyway={guardian.showAnyway}
+              onReport={onReport}
             />
           )}
         </AnimatePresence>
@@ -358,22 +362,6 @@ const GUARDIAN_TITLE: Record<GuardianStatus, string> = {
   unavailable: "This device can’t run the safety check; the veil still works",
 };
 
-export function ShieldIcon({ className = "size-3.5" }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 16 16"
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinejoin="round"
-    >
-      <path d="M8 1.75 2.75 3.6v4.1c0 3.2 2.2 5.6 5.25 6.55 3.05-.95 5.25-3.35 5.25-6.55V3.6L8 1.75Z" />
-    </svg>
-  );
-}
-
 function GuardianChip({ status }: { status: GuardianStatus }) {
   const on = status === "on";
   return (
@@ -402,9 +390,11 @@ function GuardianChip({ status }: { status: GuardianStatus }) {
 function GuardianCard({
   onKeepVeiled,
   onShowAnyway,
+  onReport,
 }: {
   onKeepVeiled: () => void;
   onShowAnyway: () => void;
+  onReport: () => void;
 }) {
   return (
     <motion.div
@@ -451,6 +441,13 @@ function GuardianCard({
             className="h-11 rounded-full border border-hairline-strong text-sm font-medium text-ink-muted transition hover:border-ink-faint hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70"
           >
             Show anyway
+          </button>
+          <button
+            type="button"
+            onClick={onReport}
+            className="mt-1 h-10 rounded-full text-sm font-medium text-[#ff9b9b] transition hover:bg-danger/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70"
+          >
+            Report and leave
           </button>
         </div>
       </div>

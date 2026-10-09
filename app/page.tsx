@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import EntryGate from "./components/EntryGate";
+import EntryGate, { pausedMessage } from "./components/EntryGate";
 import WorldMap, { type WorldMapHandle } from "./components/WorldMap";
 import Hud from "./components/Hud";
 import Toasts from "./components/Toasts";
@@ -17,8 +17,10 @@ import VideoPanel, {
   type RevealState,
 } from "./components/VideoPanel";
 import {
+  blockStranger as sendBlock,
   join,
   leave,
+  PausedError,
   poll,
   RateLimitedError,
   sendSignal,
@@ -47,6 +49,11 @@ export default function Home() {
   // presenting it again on re-join brings us back as the same stranger.
   const tokenRef = useRef<string | null>(null);
   const [peers, setPeers] = useState<PeerDot[]>([]);
+  // Strangers you blocked this session. The server hides them from the next
+  // poll on; this hides them right away.
+  const [blocked, setBlocked] = useState<ReadonlySet<string>>(new Set());
+  // Why we were sent back to the gate (a network pause), if we were.
+  const [gateNotice, setGateNotice] = useState<string | undefined>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const { toasts, push: showNotice, dismiss: dismissToast } = useToasts();
   // Hide the "tap a dot" hint once someone has figured it out.
@@ -255,6 +262,33 @@ export default function Home() {
     teardown();
   }
 
+  // Block (and optionally report) whoever is asking for you or talking with
+  // you. Locally it's instant: they leave your map and your screen. The
+  // server ends the call / declines the request for them, so they only see a
+  // stranger who hung up or said no.
+  function blockStranger(report: boolean) {
+    const c = connRef.current;
+    if (c.kind === "idle" || c.kind === "requesting") return;
+    const { peerId } = c;
+    const token = tokenRef.current;
+    setBlocked((prev) => new Set(prev).add(peerId));
+    if (c.kind === "incoming") setConn({ kind: "idle" });
+    else teardown();
+    showNotice(
+      report
+        ? "Reported and blocked. Thank you for keeping Pulse kind."
+        : "Blocked. You won’t see each other again.",
+    );
+    if (!token) return;
+    void sendBlock(token, peerId, report).then((status) => {
+      // Server didn't take it (e.g. they'd already gone): still make sure
+      // the stranger's side is released.
+      if (status !== 200) {
+        void signal(peerId, c.kind === "incoming" ? "decline" : "end");
+      }
+    });
+  }
+
   function startVideoRequest() {
     if (videoRef.current !== "none" || !peerRef.current) return;
     setVideo("requesting");
@@ -367,8 +401,10 @@ export default function Home() {
   }
 
   const processSignalRef = useRef(processSignal);
+  const teardownRef = useRef(teardown);
   useEffect(() => {
     processSignalRef.current = processSignal;
+    teardownRef.current = teardown;
   });
 
   useEffect(() => {
@@ -393,7 +429,17 @@ export default function Home() {
         if (active && err instanceof SessionGoneError && loc) {
           try {
             await join(loc.lat, loc.lng, token ?? undefined);
-          } catch {}
+          } catch (joinErr) {
+            // Removed after reports: back to the gate, which says why.
+            if (joinErr instanceof PausedError) {
+              active = false;
+              teardownRef.current();
+              tokenRef.current = null;
+              setPeers([]);
+              setGateNotice(pausedMessage(joinErr.retryAfterMs));
+              setPhase("gate");
+            }
+          }
         }
       } finally {
         if (active) timer = setTimeout(tick, delay);
@@ -467,9 +513,12 @@ export default function Home() {
     const session = await join(lat, lng, tokenRef.current ?? undefined);
     tokenRef.current = session.token;
     setMyLocation({ lat, lng });
+    setGateNotice(undefined);
     setPhase("live");
   }
 
+  const visiblePeers =
+    blocked.size === 0 ? peers : peers.filter((p) => !blocked.has(p.id));
   const link =
     conn.kind === "idle" ? null : { peerId: conn.peerId, phase: conn.kind };
   // Whoever you're linked with, as a colour + distance. They stay in `peers`
@@ -490,7 +539,7 @@ export default function Home() {
         <WorldMap
           ref={mapHandle}
           mode={phase === "gate" ? "intro" : "live"}
-          peers={peers}
+          peers={visiblePeers}
           me={myLocation}
           link={link}
           onPeerClick={requestConnection}
@@ -498,12 +547,14 @@ export default function Home() {
         />
 
         <AnimatePresence>
-          {phase === "gate" && <EntryGate key="gate" onReady={handleReady} />}
+          {phase === "gate" && (
+            <EntryGate key="gate" onReady={handleReady} notice={gateNotice} />
+          )}
         </AnimatePresence>
 
         {phase === "live" && (
           <Hud
-            online={peers.length}
+            online={visiblePeers.length}
             onRecenter={() => mapHandle.current?.recenter()}
           />
         )}
@@ -561,6 +612,7 @@ export default function Home() {
               stranger={stranger}
               onAccept={acceptIncoming}
               onDecline={declineIncoming}
+              onBlock={() => blockStranger(false)}
             />
           )}
         </AnimatePresence>
@@ -580,6 +632,7 @@ export default function Home() {
               onStartVideo={startVideoRequest}
               onAcceptVideo={acceptVideo}
               onDeclineVideo={declineVideo}
+              onBlock={blockStranger}
               onEnd={endConnection}
             />
           )}
@@ -601,6 +654,7 @@ export default function Home() {
               }}
               onReveal={revealCamera}
               onVeil={veilCameras}
+              onReport={() => blockStranger(true)}
               onEnd={endVideo}
             />
           )}

@@ -23,8 +23,41 @@ export async function join(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ lat, lng, token }),
   });
+  if (res.status === 403) {
+    const body = await res.json().catch(() => ({}));
+    if (body?.error === "paused") {
+      throw new PausedError((Number(body.retryAfter) || 60) * 1000);
+    }
+  }
   if (!res.ok) throw new Error(`join failed: ${res.status}`);
   return res.json();
+}
+
+// Thrown by join() while this network is paused after reports from several
+// different people (lib/safety.ts on the server).
+export class PausedError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super("paused");
+  }
+}
+
+// Block a stranger, and optionally report them. Resolves to the HTTP status
+// (0 on a network error).
+export async function blockStranger(
+  token: string,
+  toId: string,
+  report: boolean,
+): Promise<number> {
+  try {
+    const res = await fetch("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...auth(token) },
+      body: JSON.stringify({ toId, report }),
+    });
+    return res.status;
+  } catch {
+    return 0;
+  }
 }
 
 // Thrown by poll() when the server no longer has our presence row (410) or

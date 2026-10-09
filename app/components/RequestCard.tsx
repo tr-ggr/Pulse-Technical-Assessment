@@ -13,10 +13,12 @@ export default function RequestCard({
   stranger,
   onAccept,
   onDecline,
+  onBlock,
 }: {
   stranger: Stranger;
   onAccept: () => void;
   onDecline: () => void;
+  onBlock: () => void;
 }) {
   const isPresent = useIsPresent();
   const titleId = useId();
@@ -78,6 +80,14 @@ export default function RequestCard({
           Accept
         </button>
       </div>
+      {/* For the stranger who keeps asking: decline and never hear from them. */}
+      <button
+        type="button"
+        onClick={onBlock}
+        className="mx-auto mt-3 block rounded-full px-3 py-1.5 text-xs text-ink-faint transition hover:text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70"
+      >
+        Block this stranger
+      </button>
     </motion.div>
   );
 }
