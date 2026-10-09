@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { REQUEST_TIMEOUT_MS } from "@/lib/presence";
+import { isBlockedPair } from "@/lib/safety";
 import type { SignalType } from "@/lib/types";
 
 // Server-only. The connection state machine, enforced on the server so a
@@ -59,9 +60,10 @@ async function request(fromId: string, toId: string): Promise<Verdict> {
     where: { id: toId },
     select: { busy: true },
   });
-  // Target offline or already in a connection: tell the initiator it was
-  // declined instead of delivering the request.
-  if (!target || target.busy) {
+  // Target offline, already in a connection, or blocked either way: tell the
+  // initiator it was declined instead of delivering the request. A block
+  // looks exactly like a busy stranger, so it can't be probed for.
+  if (!target || target.busy || (await isBlockedPair(fromId, toId))) {
     await sendServerSignal(toId, fromId, "decline");
     return { ok: true, deliver: false };
   }
@@ -114,7 +116,27 @@ async function accept(fromId: string, toId: string): Promise<Verdict> {
     });
     return reject(409, "no pending request");
   }
+  await rememberPair(fromId, toId);
   return DELIVER;
+}
+
+// Each side keeps who it was last paired with, and that stranger's network,
+// so a report still works after they hang up or close the tab.
+async function rememberPair(a: string, b: string) {
+  const rows = await prisma.presence.findMany({
+    where: { id: { in: [a, b] } },
+    select: { id: true, ipKey: true },
+  });
+  const ipOf = (id: string) => rows.find((r) => r.id === id)?.ipKey ?? null;
+  // updateMany: either row may vanish under us (a concurrent leave).
+  await prisma.presence.updateMany({
+    where: { id: a },
+    data: { lastPeerId: b, lastPeerIp: ipOf(b) },
+  });
+  await prisma.presence.updateMany({
+    where: { id: b },
+    data: { lastPeerId: a, lastPeerIp: ipOf(a) },
+  });
 }
 
 // `fromId` declines the request that `toId` made.

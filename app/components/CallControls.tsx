@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { VeilIcon } from "./icons";
 
 function formatElapsed(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -75,12 +76,15 @@ export default function CallControls({
   camOn,
   onToggleMic,
   onToggleCam,
+  onVeil,
   onEnd,
 }: {
   micOn: boolean;
   camOn: boolean;
   onToggleMic: () => void;
   onToggleCam: () => void;
+  // Only while revealed: drop the veil back over both cameras.
+  onVeil?: () => void;
   onEnd: () => void;
 }) {
   return (
@@ -106,6 +110,17 @@ export default function CallControls({
       >
         <CameraIcon off={!camOn} />
       </button>
+      {onVeil && (
+        <button
+          type="button"
+          onClick={onVeil}
+          aria-label="Veil cameras"
+          title="Blur both cameras again"
+          className={`${toggleBase} ${toggleOn}`}
+        >
+          <VeilIcon />
+        </button>
+      )}
       <button
         type="button"
         onClick={onEnd}

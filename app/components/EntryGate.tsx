@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, useIsPresent } from "motion/react";
 import { primeAudio } from "@/lib/chime";
+import { PausedError } from "@/lib/api";
 
 type Status = "idle" | "locating" | "error";
 
@@ -26,14 +27,23 @@ function locationError(err: GeolocationPositionError): string {
   }
 }
 
+// "Paused" copy: calm, specific, and honest about why.
+export function pausedMessage(retryAfterMs: number): string {
+  const minutes = Math.max(1, Math.ceil(retryAfterMs / 60_000));
+  return `People you talked to reported this connection, so Pulse is pausing it for about ${minutes} minute${minutes === 1 ? "" : "s"}.`;
+}
+
 export default function EntryGate({
   onReady,
+  notice,
 }: {
   // Rejects if we couldn't join (network / server); the gate shows a retry.
   onReady: (lat: number, lng: number) => Promise<void>;
+  // Why we're back at the gate, e.g. this network was paused mid-session.
+  notice?: string;
 }) {
-  const [status, setStatus] = useState<Status>("idle");
-  const [error, setError] = useState("");
+  const [status, setStatus] = useState<Status>(notice ? "error" : "idle");
+  const [error, setError] = useState(notice ?? "");
   const isPresent = useIsPresent();
 
   function fail(message: string) {
@@ -54,8 +64,12 @@ export default function EntryGate({
     setError("");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        onReady(pos.coords.latitude, pos.coords.longitude).catch(() =>
-          fail("Couldn’t reach Pulse. Check your connection and try again."),
+        onReady(pos.coords.latitude, pos.coords.longitude).catch((err) =>
+          fail(
+            err instanceof PausedError
+              ? pausedMessage(err.retryAfterMs)
+              : "Couldn’t reach Pulse. Check your connection and try again.",
+          ),
         );
       },
       (err) => fail(locationError(err)),

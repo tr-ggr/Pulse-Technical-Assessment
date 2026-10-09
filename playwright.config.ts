@@ -10,6 +10,9 @@ try {
 // Dedicated port so the suite never attaches to some other app on :3000.
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 const BASE_URL = `http://localhost:${PORT}`;
+// E2E_SERVER=start runs against a production build (`npm run build` first),
+// which serves the production CSP — no 'unsafe-eval' as in dev.
+const SERVER = process.env.E2E_SERVER === "start" ? "start" : "dev";
 
 export default defineConfig({
   testDir: "e2e",
@@ -40,7 +43,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npm run dev -- --port ${PORT}`,
+    command: `npm run ${SERVER} -- --port ${PORT}`,
     url: BASE_URL,
     timeout: 120_000,
     reuseExistingServer: !process.env.CI,

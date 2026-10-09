@@ -16,12 +16,18 @@ test.skip(
 const MANILA = { latitude: 14.5995, longitude: 120.9842 };
 const CEBU = { latitude: 10.3157, longitude: 123.8854 };
 
+// Anything the CSP blocks during the flow (e.g. the Guardian's TF.js).
+const cspViolations: string[] = [];
+
 async function enter(browser: Browser, geolocation: typeof MANILA) {
   const context = await browser.newContext({
     geolocation,
     permissions: ["geolocation", "camera", "microphone"],
   });
   const page = await context.newPage();
+  page.on("console", (m) => {
+    if (/Content Security Policy/i.test(m.text())) cspViolations.push(m.text());
+  });
   await page.goto("/");
   await page.getByRole("button", { name: "Enter Pulse" }).click();
   return { context, page };
@@ -36,6 +42,18 @@ function remoteVideoHasTrack(page: Page) {
       const s = v.srcObject as MediaStream | null;
       return !!s && s.getVideoTracks().length > 0;
     });
+}
+
+// Decoded width of the stranger's video as this page receives it.
+function remoteVideoWidth(page: Page) {
+  return page
+    .locator("video")
+    .first()
+    .evaluate((v: HTMLVideoElement) => v.videoWidth);
+}
+
+function stage(page: Page) {
+  return page.locator('section[aria-label="Video call"]');
 }
 
 async function connect(a: Page, b: Page) {
@@ -59,7 +77,7 @@ async function connect(a: Page, b: Page) {
 
 async function send(page: Page, text: string) {
   await page.getByPlaceholder("Type a message…").fill(text);
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
 }
 
 test("two strangers can see, connect, chat, video, reconnect and leave", async ({
@@ -86,6 +104,29 @@ test("two strangers can see, connect, chat, video, reconnect and leave", async (
   await b.getByRole("button", { name: "Accept" }).click();
   await expect.poll(() => remoteVideoHasTrack(a)).toBe(true);
   await expect.poll(() => remoteVideoHasTrack(b)).toBe(true);
+
+  // Safe Reveal: both cameras arrive veiled, shrunk to a smudge at the
+  // source, so what each side receives is tiny, until both say yes.
+  await expect(stage(a)).toHaveAttribute("data-veiled", "true");
+  await expect.poll(() => remoteVideoWidth(a)).toBeGreaterThan(0);
+  expect(await remoteVideoWidth(a)).toBeLessThanOrEqual(160);
+  await a.getByRole("button", { name: "Reveal my camera" }).click();
+  await expect(b.getByText("They’re ready to reveal")).toBeVisible();
+  await expect(stage(b)).toHaveAttribute("data-veiled", "true");
+  await b.getByRole("button", { name: "Reveal my camera" }).click();
+  await expect(stage(a)).toHaveAttribute("data-veiled", "false");
+  await expect(stage(b)).toHaveAttribute("data-veiled", "false");
+  await expect.poll(() => remoteVideoWidth(a)).toBeGreaterThan(160);
+  await expect.poll(() => remoteVideoWidth(b)).toBeGreaterThan(160);
+  // The Guardian model loads and runs on-device (under the CSP).
+  await expect(stage(a)).toHaveAttribute("data-guardian", "on", {
+    timeout: 60_000,
+  });
+  // Either side can put the veil back over both cameras.
+  await b.getByRole("button", { name: "Veil cameras" }).click();
+  await expect(stage(a)).toHaveAttribute("data-veiled", "true");
+  await expect(stage(b)).toHaveAttribute("data-veiled", "true");
+  await expect.poll(() => remoteVideoWidth(a)).toBeLessThanOrEqual(160);
 
   // The page is fixed/overflow-hidden, so a user can't scroll to the control:
   // it must be on screen (B6). click() alone would auto-scroll and hide this.
@@ -117,4 +158,48 @@ test("two strangers can see, connect, chat, video, reconnect and leave", async (
   await expect(a.locator(".pulse-dot")).toHaveCount(0, { timeout: 30_000 });
 
   await alice.context.close();
+  expect(cspViolations).toEqual([]);
+});
+
+test("the chat guard, then blocking from the chat", async ({
+  browser,
+}) => {
+  // Wait out any ghost from the previous test (stale after 15 s), so the
+  // only dot Alice can tap is Bob's. An empty map only means something once
+  // a poll has actually come back.
+  const alice = await enter(browser, MANILA);
+  await alice.page.waitForResponse((r) => r.url().includes("/api/poll"));
+  await alice.page.waitForResponse((r) => r.url().includes("/api/poll"));
+  await expect(alice.page.locator(".pulse-dot")).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  const bob = await enter(browser, CEBU);
+  const a = alice.page;
+  const b = bob.page;
+  await connect(a, b);
+
+  // Sharing a phone number asks first; nothing is sent until you confirm.
+  await send(a, "my number is 0917 123 4567");
+  await expect(a.getByText("That looks like a phone number.")).toBeVisible();
+  await a.getByRole("button", { name: "Send anyway" }).click();
+  await expect(b.getByText("my number is 0917 123 4567")).toBeVisible();
+  // A stranger asking to move apps gets a quiet note on the other side.
+  await send(b, "add me on telegram instead");
+  await expect(a.getByText("Moving off Pulse? Take your time")).toBeVisible();
+
+  await a.getByRole("button", { name: "Safety" }).click();
+  await expect(a.getByText("Not feeling right?")).toBeVisible();
+  await a.getByRole("button", { name: /^Block The chat ends/ }).click();
+  await expect(
+    a.getByText("Blocked. You won’t see each other again."),
+  ).toBeVisible();
+  await expect(a.locator(".pulse-dot")).toHaveCount(0);
+
+  // Bob is only told the stranger left, and loses Alice's dot too.
+  await expect(b.getByText("Stranger disconnected.")).toBeVisible();
+  await expect(b.locator(".pulse-dot")).toHaveCount(0);
+
+  await alice.context.close();
+  await bob.context.close();
+  expect(cspViolations).toEqual([]);
 });

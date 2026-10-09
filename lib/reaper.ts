@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { releaseUsers } from "@/lib/pairing";
 import { REQUEST_TIMEOUT_MS, SIGNAL_TTL_MS, STALE_MS } from "@/lib/presence";
 import { RATE_WINDOW_MAX_MS, tryLease } from "@/lib/ratelimit";
+import { sweepSafety } from "@/lib/safety";
 
 // Server-only. Housekeeping used to run on every poll from every user, so
 // load on the database grew with traffic and anyone polling fast could
@@ -43,4 +44,5 @@ export async function reapIfDue() {
       NOT: { key: { startsWith: "lease:" } },
     },
   });
+  await sweepSafety(now);
 }

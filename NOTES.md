@@ -183,3 +183,77 @@ two-user flow. The two-user flow and the CSP check also pass against
 **Next with more time:** a TURN relay for IP privacy, offsetting in the browser
 so raw coordinates never leave the device, block/report for strangers, and
 tuning the per-IP limits for users behind carrier NAT.
+
+## Phase 4 — Make it better: Safe Reveal
+
+Full write-up with screenshots: [`docs/phase-4.md`](docs/phase-4.md).
+
+![Both cameras veiled until both say yes](docs/screenshots/phase-4/desktop-2-they-are-ready.webp)
+
+**What I built:** safety without surveillance. The riskiest moment on a
+random-stranger app is the first frame of video, and until now you only had
+the End button, after you'd already seen it. Every check below runs on your
+device or is agreed peer to peer. The server never sees chat or video.
+
+- **Veil:** cameras start blurred *at the source*. Each frame is shrunk to
+  12 px wide before it's encoded, so no detail ever leaves the device. Video
+  clears only when **both** people tap Reveal. Either person can veil both
+  again at any time, and the receiver also blurs in CSS in case a modified
+  client skips the veil. Uses `replaceTrack`, so there's no renegotiation.
+- **Guardian:** after reveal, an on-device classifier (nsfwjs + TF.js,
+  self-hosted model, lazy-loaded) checks the stranger's video about once a
+  second.
+  - Two explicit frames in a row blur it again and offer: keep it blurred,
+    show anyway, or report.
+  - Nothing is uploaded, and the stranger isn't told.
+  - It fails open, and the chip says so.
+- **Block and report without accounts:**
+  - **Block:** both dots disappear for each other, and requests are silently
+    declined like a busy stranger.
+  - **Report:** reports from **2 different networks** of people who
+    **actually talked to** the stranger pause that network for 30 minutes.
+    Their session is removed and joins are refused. One person can't abuse
+    it: a network counts once, the target's own network never counts, and
+    reports work even after the stranger fled.
+- **Chat guard:** one "a stranger can't unsee this" prompt before you send a
+  phone number, email, handle, link or address. Incoming links, "add me on
+  WhatsApp" and money talk get a quiet caption. The patterns are
+  conservative so the prompt stays meaningful.
+
+**Why this:** it's the feature a real stranger-chat product would need before
+launch. It turns Phase 3's deferred block/report into something with real
+consequences, and it keeps Pulse's promise: no accounts, nothing stored past
+the session or the 30-minute report window.
+
+**Trade-offs:**
+- The Guardian is about 90 % accurate and fails open; the veil is the primary
+  protection.
+- A pause can hit carrier-grade-NAT neighbours. It's bounded by the
+  2-network rule, the conversation requirement and the 30-minute window.
+- Audio flows before reveal, on purpose: talking first is what makes revealing
+  feel safe.
+- Blocks last a session; reports are what follow a network.
+
+**Schema change:** `npx prisma db push` adds `Presence.ipKey/lastPeerId/
+lastPeerIp` and the `Block` and `Report` tables. All additive.
+
+**Verification:**
+- `npm run e2e` runs 22 tests, also against the production build with
+  `E2E_SERVER=start`. They cover:
+  - veiled video stays ≤ 160 px wide until both reveal
+  - the Guardian loads under the real CSP
+  - the chat guard prompt
+  - block from the UI
+  - the report and pause rules via the API, plus pure tests of the patterns
+- Lint, `tsc` and `build` are clean.
+- Manual two-browser runs at 1440×900 and 390×844 found three layout bugs,
+  all fixed.
+- Two windows on one machine can't pause each other, by design (same
+  network). The pause is exercised in `e2e/safety.spec.ts`.
+
+**Next with more time:**
+- a Guardian check of *your own* camera before you reveal
+- run inference in a Worker
+- escalating pauses for repeat offenders
+- on-device text-toxicity softening
+- TURN for IP privacy

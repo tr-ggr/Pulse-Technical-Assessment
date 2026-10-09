@@ -3,7 +3,15 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import StrangerOrb from "./StrangerOrb";
+import { ShieldIcon } from "./icons";
 import type { Stranger } from "@/lib/identity";
+import {
+  cautionFor,
+  detectSensitive,
+  MAX_MESSAGE_LENGTH,
+  type Caution,
+  type Sensitive,
+} from "@/lib/chatGuard";
 
 export interface ChatMessage {
   id: number;
@@ -13,7 +21,19 @@ export interface ChatMessage {
 
 type VideoState = "none" | "requesting" | "incoming" | "active";
 
-const MAX_MESSAGE_LENGTH = 1000;
+const SENSITIVE_COPY: Record<Sensitive, string> = {
+  email: "That looks like your email address.",
+  phone: "That looks like a phone number.",
+  handle: "That looks like a social handle.",
+  link: "Links can lead back to you.",
+  address: "That looks like an address.",
+};
+
+const CAUTION_COPY: Record<Caution, string> = {
+  link: "A link from a stranger — open with care",
+  offplatform: "Moving off Pulse? Take your time",
+  money: "Money talk with strangers is a common scam",
+};
 
 // Rounded bubbles that tuck their inner corners when consecutive messages
 // come from the same side, so a burst reads as one thought.
@@ -32,6 +52,7 @@ export default function ChatPanel({
   onStartVideo,
   onAcceptVideo,
   onDeclineVideo,
+  onBlock,
   onEnd,
 }: {
   messages: ChatMessage[];
@@ -42,9 +63,13 @@ export default function ChatPanel({
   onStartVideo: () => void;
   onAcceptVideo: () => void;
   onDeclineVideo: () => void;
+  onBlock: (report: boolean) => void;
   onEnd: () => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [safetyOpen, setSafetyOpen] = useState(false);
+  // What the chat guard spotted in the draft; a second send confirms.
+  const [confirm, setConfirm] = useState<Sensitive | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const isPresent = useIsPresent();
@@ -68,8 +93,20 @@ export default function ChatPanel({
     e.preventDefault();
     const text = draft.trim();
     if (!text || !connected) return;
+    // Something that identifies you: ask once. Enter again (or "Send
+    // anyway") sends it; editing the draft asks afresh.
+    const sensitive = detectSensitive(text);
+    if (sensitive && confirm !== sensitive) {
+      setConfirm(sensitive);
+      return;
+    }
+    send(text);
+  }
+
+  function send(text: string) {
     onSend(text);
     setDraft("");
+    setConfirm(null);
   }
 
   const tint = { "--dot": stranger.color } as CSSProperties;
@@ -110,40 +147,55 @@ export default function ChatPanel({
                 <span aria-hidden className="text-ink-faint">
                   ·
                 </span>
-                <span className="truncate">{stranger.distanceLabel}</span>
+                {/* "away" is implied here; it buys room for the buttons. */}
+                <span className="truncate" title={stranger.distanceLabel}>
+                  {stranger.distanceLabel.replace(/ away$/, "")}
+                </span>
               </>
             )}
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onStartVideo}
-          disabled={!connected || video !== "none"}
-          aria-label="Video"
-          title="Start a video call"
-          className="grid size-9 place-items-center rounded-full border border-hairline-strong text-ink transition hover:border-ink-faint hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:size-11"
-        >
-          <svg
-            aria-hidden
-            viewBox="0 0 20 20"
-            className="size-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinejoin="round"
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setSafetyOpen(true)}
+            aria-label="Safety"
+            aria-haspopup="dialog"
+            title="Block or report"
+            className="grid size-9 place-items-center rounded-full border border-hairline-strong text-ink-muted transition hover:border-ink-faint hover:bg-white/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:size-11"
           >
-            <rect x="2" y="5" width="11" height="10" rx="2.5" />
-            <path d="m13 8.5 4.5-2.5v8L13 11.5" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={onEnd}
-          className="h-9 rounded-full bg-danger/15 px-3.5 text-[13px] font-semibold text-[#ff9b9b] transition hover:bg-danger hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70 pointer-coarse:h-11"
-        >
-          End
-        </button>
+            <ShieldIcon className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onStartVideo}
+            disabled={!connected || video !== "none"}
+            aria-label="Video"
+            title="Start a video call"
+            className="grid size-9 place-items-center rounded-full border border-hairline-strong text-ink transition hover:border-ink-faint hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:size-11"
+          >
+            <svg
+              aria-hidden
+              viewBox="0 0 20 20"
+              className="size-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinejoin="round"
+            >
+              <rect x="2" y="5" width="11" height="10" rx="2.5" />
+              <path d="m13 8.5 4.5-2.5v8L13 11.5" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={onEnd}
+            className="h-9 rounded-full bg-danger/15 px-3.5 text-[13px] font-semibold text-[#ff9b9b] transition hover:bg-danger hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70 pointer-coarse:h-11"
+          >
+            End
+          </button>
+        </div>
       </header>
 
       <div
@@ -175,6 +227,7 @@ export default function ChatPanel({
                 const first = i === 0 || messages[i - 1].mine !== m.mine;
                 const last =
                   i === messages.length - 1 || messages[i + 1].mine !== m.mine;
+                const caution = m.mine ? null : cautionFor(m.text);
                 return (
                   <motion.li
                     key={m.id}
@@ -182,7 +235,7 @@ export default function ChatPanel({
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ type: "spring", stiffness: 500, damping: 34 }}
                     style={{ originX: m.mine ? 1 : 0 }}
-                    className={`flex ${m.mine ? "justify-end" : "justify-start"} ${first ? "mt-3 first:mt-0" : "mt-1"}`}
+                    className={`flex flex-col ${m.mine ? "items-end" : "items-start"} ${first ? "mt-3 first:mt-0" : "mt-1"}`}
                   >
                     <span
                       className={`max-w-[82%] whitespace-pre-wrap break-words px-3.5 py-2 text-[15px] leading-snug ${bubbleShape(m.mine, first, last)} ${
@@ -193,6 +246,12 @@ export default function ChatPanel({
                     >
                       {m.text}
                     </span>
+                    {caution && (
+                      <span className="mt-1 flex items-center gap-1 px-1 text-[11px] text-ink-faint">
+                        <ShieldIcon className="size-3" />
+                        {CAUTION_COPY[caution]}
+                      </span>
+                    )}
                   </motion.li>
                 );
               })}
@@ -286,6 +345,48 @@ export default function ChatPanel({
         )}
       </AnimatePresence>
 
+      <AnimatePresence initial={false}>
+        {confirm && (
+          <motion.div
+            key="chat-guard"
+            role="alert"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="shrink-0 overflow-hidden"
+          >
+            <div className="mx-4 mb-2 rounded-2xl border border-ember/25 bg-ember/[0.07] px-3.5 py-3 lg:mx-5">
+              <p className="flex gap-2 text-sm leading-snug text-ink-muted">
+                <ShieldIcon className="mt-0.5 size-3.5 shrink-0 text-ember" />
+                <span>
+                  <span className="text-ink">{SENSITIVE_COPY[confirm]}</span>{" "}
+                  Once it’s sent, a stranger can’t unsee it.
+                </span>
+              </p>
+              <div className="mt-2.5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirm(null);
+                    inputRef.current?.focus();
+                  }}
+                  className="h-9 rounded-full px-3.5 text-[13px] font-medium text-ink-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:h-11"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => send(draft.trim())}
+                  className="h-9 rounded-full border border-hairline-strong px-3.5 text-[13px] font-semibold text-ink transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70 pointer-coarse:h-11"
+                >
+                  Send anyway
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <form
         onSubmit={submit}
         className="flex shrink-0 items-center gap-2 border-t border-hairline p-3 lg:px-4"
@@ -293,7 +394,10 @@ export default function ChatPanel({
         <input
           ref={inputRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setConfirm(null);
+          }}
           placeholder={connected ? "Type a message…" : "Connecting…"}
           aria-label="Message"
           disabled={!connected}
@@ -322,6 +426,130 @@ export default function ChatPanel({
           </svg>
         </button>
       </form>
+
+      <AnimatePresence>
+        {safetyOpen && (
+          <SafetySheet
+            key="safety"
+            onBlock={onBlock}
+            onClose={() => setSafetyOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </motion.aside>
+  );
+}
+
+// Block / report, inside the chat it applies to. Says plainly what each does
+// and what Pulse can't see, so nobody hesitates to use it.
+function SafetySheet({
+  onBlock,
+  onClose,
+}: {
+  onBlock: (report: boolean) => void;
+  onClose: () => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => cancelRef.current?.focus(), []);
+
+  return (
+    <motion.div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="safety-title"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, transition: { duration: 0.18 } }}
+      onKeyDown={(e) => {
+        // Handled here so the page's Esc (cancel/decline) doesn't also fire.
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
+      className="absolute inset-0 z-10 flex flex-col justify-end bg-night-950/70 backdrop-blur-sm"
+    >
+      <button
+        type="button"
+        aria-label="Close"
+        tabIndex={-1}
+        onClick={onClose}
+        className="flex-1 cursor-default"
+      />
+      <motion.div
+        initial={{ y: 24 }}
+        animate={{ y: 0 }}
+        exit={{ y: 16 }}
+        transition={{ type: "spring", stiffness: 380, damping: 34 }}
+        className="m-3 rounded-card border border-hairline-strong bg-night-800 p-4 shadow-[var(--shadow-glass)]"
+      >
+        <div className="flex items-center gap-2.5 px-1">
+          <ShieldIcon className="size-4 text-ink-muted" />
+          <h3 id="safety-title" className="font-display text-[22px] text-ink">
+            Not feeling right?
+          </h3>
+        </div>
+        <p className="mt-1 px-1 text-[13px] leading-relaxed text-ink-muted text-pretty">
+          Pulse never sees your messages or video — only that you want this
+          stranger gone.
+        </p>
+
+        <div className="mt-3 flex flex-col gap-2">
+          <SafetyAction
+            title="Block"
+            detail="The chat ends. They vanish from your map, and you from theirs."
+            onClick={() => onBlock(false)}
+          />
+          <SafetyAction
+            danger
+            title="Report and block"
+            detail="Also counts against their connection. Reports from two different people pause it for 30 minutes."
+            onClick={() => onBlock(true)}
+          />
+        </div>
+
+        <button
+          ref={cancelRef}
+          type="button"
+          onClick={onClose}
+          className="mt-2 h-11 w-full rounded-full text-sm font-medium text-ink-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/70"
+        >
+          Cancel
+        </button>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function SafetyAction({
+  title,
+  detail,
+  danger = false,
+  onClick,
+}: {
+  title: string;
+  detail: string;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 ${
+        danger
+          ? "border-danger/30 bg-danger/10 hover:bg-danger/20 focus-visible:ring-danger/70"
+          : "border-hairline-strong bg-white/[0.03] hover:bg-white/[0.07] focus-visible:ring-ember/70"
+      }`}
+    >
+      <span
+        className={`block text-sm font-semibold ${danger ? "text-[#ffb3b3]" : "text-ink"}`}
+      >
+        {title}
+      </span>
+      <span className="mt-0.5 block text-[13px] leading-snug text-ink-muted">
+        {detail}
+      </span>
+    </button>
   );
 }
