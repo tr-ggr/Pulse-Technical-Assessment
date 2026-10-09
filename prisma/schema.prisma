@@ -12,16 +12,23 @@ datasource db {
 }
 
 model Presence {
-  id       String   @id // client-generated session uuid
-  lat      Float // ALREADY privacy-offset coords (raw is never stored)
-  lng      Float
-  busy     Boolean  @default(false) // true while in an active connection
-  peerId   String? // session id of the active partner (set with busy)
+  id         String    @id // client-generated session uuid
+  lat        Float // ALREADY privacy-offset coords (raw is never stored)
+  lng        Float
+  busy       Boolean   @default(false) // true while in an active connection
+  peerId     String? // session id of the active partner (set with busy)
   // Outgoing connection request, so the server can tell a real accept from a
   // forged one. One at a time; expires with REQUEST_TIMEOUT_MS.
-  requestTo String?
-  requestAt DateTime?
-  lastSeen DateTime
+  requestTo  String?
+  requestAt  DateTime?
+  lastSeen   DateTime
+  // sha256 of the client IP (as in RateLimit), so reports can pause a network.
+  ipKey      String?
+  // The last stranger this session was paired with, and their ipKey at the
+  // time. Kept after the call ends, so you can still report someone who
+  // flashed you and closed the tab.
+  lastPeerId String?
+  lastPeerIp String?
 
   @@index([lastSeen])
   @@index([requestTo])
@@ -48,4 +55,27 @@ model RateLimit {
   count       Int
 
   @@index([windowStart])
+}
+
+model Block {
+  // "Never show me to this stranger again, nor them to me" — for as long as
+  // both sessions live. The reaper drops a row once either side has left.
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+model Report {
+  // One row per (reported network, reporting network): a reporter counts
+  // once however often they report. Enough distinct reporters within
+  // PAUSE_MS pause the reported network (lib/safety.ts); rows expire after.
+  targetIp   String
+  reporterIp String
+  createdAt  DateTime @default(now())
+
+  @@id([targetIp, reporterIp])
+  @@index([createdAt])
 }

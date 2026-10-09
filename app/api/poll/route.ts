@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { STALE_MS } from "@/lib/presence";
 import { reapIfDue } from "@/lib/reaper";
+import { blockedIdsFor } from "@/lib/safety";
 import type { PollResponse } from "@/lib/types";
 import { authenticate, unauthorized } from "@/lib/session";
 import { clientIp, limit, rules } from "@/lib/ratelimit";
@@ -37,10 +38,11 @@ export async function GET(request: NextRequest) {
   // 2) Housekeeping — at most once per few seconds across all instances.
   await reapIfDue();
 
-  // 3) Online peers, excluding self.
+  // 3) Online peers, excluding self and anyone blocked either way.
+  const hidden = await blockedIdsFor(id);
   const peers = await prisma.presence.findMany({
     where: {
-      id: { not: id },
+      id: { notIn: [id, ...hidden] },
       lastSeen: { gte: staleCutoff },
     },
     select: { id: true, lat: true, lng: true, busy: true },

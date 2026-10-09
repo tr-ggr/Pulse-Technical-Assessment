@@ -23,6 +23,7 @@ export const rules = {
   poll: (id: string): Rule => ({ key: `poll:${id}`, limit: 60, windowMs: MINUTE }),
   signal: (id: string): Rule => ({ key: `signal:${id}`, limit: 120, windowMs: MINUTE }),
   request: (id: string): Rule => ({ key: `request:${id}`, limit: 6, windowMs: MINUTE }),
+  report: (id: string): Rule => ({ key: `report:${id}`, limit: 5, windowMs: MINUTE }),
   requestCooldown: (id: string): Rule => ({
     key: `request-cd:${id}`,
     limit: 1,
