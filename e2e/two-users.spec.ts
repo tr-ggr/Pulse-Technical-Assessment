@@ -165,8 +165,11 @@ test("the chat guard, then blocking from the chat", async ({
   browser,
 }) => {
   // Wait out any ghost from the previous test (stale after 15 s), so the
-  // only dot Alice can tap is Bob's.
+  // only dot Alice can tap is Bob's. An empty map only means something once
+  // a poll has actually come back.
   const alice = await enter(browser, MANILA);
+  await alice.page.waitForResponse((r) => r.url().includes("/api/poll"));
+  await alice.page.waitForResponse((r) => r.url().includes("/api/poll"));
   await expect(alice.page.locator(".pulse-dot")).toHaveCount(0, {
     timeout: 30_000,
   });
