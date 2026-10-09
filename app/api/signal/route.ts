@@ -18,7 +18,9 @@ const VALID_TYPES: SignalType[] = [
   "end",
 ];
 
-const MAX_PAYLOAD = 64 * 1024; // SDP/ICE are small; cap to be safe.
+// A real SDP with audio, video and a data channel is ~5–10 KB.
+const MAX_PAYLOAD = 32 * 1024;
+const MAX_BODY = MAX_PAYLOAD + 1024;
 
 // Undelivered signals one recipient may hold. A real handshake needs a few
 // dozen at most; anything beyond this is someone flooding their inbox.
@@ -31,6 +33,10 @@ const MAILBOX_MAX = 100;
 export async function POST(request: NextRequest) {
   const fromId = authenticate(request);
   if (!fromId) return unauthorized();
+
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) {
+    return Response.json({ error: "body too large" }, { status: 413 });
+  }
 
   let body: unknown;
   try {
@@ -47,16 +53,15 @@ export async function POST(request: NextRequest) {
   if (typeof type !== "string" || !VALID_TYPES.includes(type as SignalType)) {
     return Response.json({ error: "invalid type" }, { status: 400 });
   }
-  if (
-    payload !== undefined &&
-    payload !== null &&
-    (typeof payload !== "string" || payload.length > MAX_PAYLOAD)
-  ) {
-    return Response.json({ error: "invalid payload" }, { status: 400 });
+  if (typeof payload === "string" && payload.length > MAX_PAYLOAD) {
+    return Response.json({ error: "payload too large" }, { status: 413 });
   }
 
   const signalType = type as SignalType;
-  const payloadStr = typeof payload === "string" ? payload : null;
+  const payloadStr = normalizePayload(signalType, payload);
+  if (payloadStr === undefined) {
+    return Response.json({ error: "invalid payload" }, { status: 400 });
+  }
 
   const blocked = await limit(
     rules.ip(clientIp(request)),
@@ -84,4 +89,41 @@ export async function POST(request: NextRequest) {
   });
 
   return Response.json({ ok: true });
+}
+
+// Only SDP and ICE carry a payload, and only in the shape RTCPeerConnection
+// produces. Re-serialise the known fields so nothing else rides along to the
+// peer. Returns undefined when the payload doesn't fit its type.
+function normalizePayload(
+  type: SignalType,
+  payload: unknown,
+): string | null | undefined {
+  if (type !== "offer" && type !== "answer" && type !== "ice") {
+    return payload === undefined || payload === null ? null : undefined;
+  }
+  if (typeof payload !== "string") return undefined;
+
+  let data: unknown;
+  try {
+    data = JSON.parse(payload);
+  } catch {
+    return undefined;
+  }
+  if (typeof data !== "object" || data === null) return undefined;
+  const d = data as Record<string, unknown>;
+
+  if (type === "ice") {
+    if (typeof d.candidate !== "string") return undefined;
+    return JSON.stringify({
+      candidate: d.candidate,
+      sdpMid: typeof d.sdpMid === "string" ? d.sdpMid : null,
+      sdpMLineIndex:
+        typeof d.sdpMLineIndex === "number" ? d.sdpMLineIndex : null,
+      usernameFragment:
+        typeof d.usernameFragment === "string" ? d.usernameFragment : null,
+    });
+  }
+
+  if (d.type !== type || typeof d.sdp !== "string") return undefined;
+  return JSON.stringify({ type: d.type, sdp: d.sdp });
 }
