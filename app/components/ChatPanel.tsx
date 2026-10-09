@@ -191,6 +191,7 @@ export default function ChatPanel({
           <button
             type="button"
             onClick={onEnd}
+            data-sound="disconnect"
             className="h-9 rounded-full bg-danger/15 px-3.5 text-[13px] font-semibold text-[#ff9b9b] transition hover:bg-danger hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70 pointer-coarse:h-11"
           >
             End
@@ -409,6 +410,7 @@ export default function ChatPanel({
         <button
           type="submit"
           aria-label="Send"
+          data-sound="send"
           disabled={!connected || !draft.trim()}
           className="grid size-11 shrink-0 place-items-center rounded-full bg-ember text-night-900 transition hover:bg-ember-bright active:scale-95 disabled:bg-white/10 disabled:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-night-900"
         >

@@ -124,6 +124,7 @@ export default function CallControls({
       <button
         type="button"
         onClick={onEnd}
+        data-sound="disconnect"
         className="ml-1 flex h-13 items-center gap-2 rounded-full bg-danger-deep px-5 text-sm font-semibold text-white transition hover:bg-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black active:scale-[0.97]"
       >
         <svg

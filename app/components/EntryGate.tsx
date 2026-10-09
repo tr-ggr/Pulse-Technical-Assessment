@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, useIsPresent } from "motion/react";
-import { primeAudio } from "@/lib/chime";
+import { primeAudio } from "@/lib/sound";
 import { PausedError } from "@/lib/api";
 
 type Status = "idle" | "locating" | "error";
@@ -52,7 +52,7 @@ export default function EntryGate({
   }
 
   function enter() {
-    // Unlock audio inside this click so request chimes can play later.
+    // Unlock audio inside this click so sounds and music can play later.
     primeAudio();
     if (!("geolocation" in navigator)) {
       fail(
@@ -131,6 +131,7 @@ export default function EntryGate({
         <motion.div {...rise(3)} className="mt-9 flex items-center gap-5">
           <button
             onClick={enter}
+            data-sound="connect"
             disabled={locating}
             className="group relative inline-flex h-14 items-center gap-3 rounded-full bg-ember pl-7 pr-6 text-[15px] font-semibold text-night-900 shadow-ember transition duration-300 ease-out-expo hover:bg-ember-bright active:scale-[0.97] disabled:cursor-progress focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-4 focus-visible:ring-offset-space"
           >
