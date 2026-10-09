@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig } from "motion/react";
 import EntryGate from "./components/EntryGate";
 import WorldMap from "./components/WorldMap";
 import ConnectionPrompt from "./components/ConnectionPrompt";
@@ -28,9 +29,10 @@ export default function Home() {
   const [notice, setNotice] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(
-    null,
-  );
+  const [myLocation, setMyLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
 
   const [conn, _setConn] = useState<Conn>({ kind: "idle" });
   const connRef = useRef<Conn>(conn);
@@ -322,95 +324,99 @@ export default function Home() {
   }, [sessionId, phase]);
 
   async function handleReady(lat: number, lng: number) {
-    setMyLocation({ lat, lng });
     locationRef.current = { lat, lng };
     await join(sessionId, lat, lng);
+    setMyLocation({ lat, lng });
     setPhase("live");
   }
 
-  if (phase === "gate") {
-    return <EntryGate onReady={handleReady} />;
-  }
-
   const inChat = conn.kind === "connecting" || conn.kind === "connected";
-  const link = conn.kind === "idle" ? null : { peerId: conn.peerId, phase: conn.kind };
+  const link =
+    conn.kind === "idle" ? null : { peerId: conn.peerId, phase: conn.kind };
 
   return (
-    <main className="fixed inset-0 overflow-hidden">
-      <WorldMap
-        peers={peers}
-        me={myLocation}
-        link={link}
-        onPeerClick={requestConnection}
-        canConnect={conn.kind === "idle"}
-      />
-
-      {notice && (
-        <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          {notice}
-        </div>
-      )}
-
-      {conn.kind === "requesting" && (
-        <div className="absolute left-1/2 top-20 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          <span>Requesting connection…</span>
-          <button
-            onClick={cancelRequest}
-            className="rounded-full bg-zinc-700 px-3 py-1 text-xs hover:bg-zinc-600"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {conn.kind === "incoming" && (
-        <ConnectionPrompt
-          title="A stranger wants to connect"
-          acceptLabel="Accept"
-          declineLabel="Decline"
-          onAccept={acceptIncoming}
-          onDecline={declineIncoming}
+    <MotionConfig reducedMotion="user">
+      <main className="fixed inset-0 overflow-hidden bg-space">
+        <WorldMap
+          mode={phase === "gate" ? "intro" : "live"}
+          peers={peers}
+          me={myLocation}
+          link={link}
+          onPeerClick={requestConnection}
+          canConnect={conn.kind === "idle"}
         />
-      )}
 
-      {inChat && (
-        <ChatPanel
-          messages={messages}
-          connected={conn.kind === "connected"}
-          videoBusy={video !== "none"}
-          onSend={(text) => {
-            peerRef.current?.sendChat(text);
-            addMessage(true, text);
-          }}
-          onStartVideo={startVideoRequest}
-          onEnd={endConnection}
-        />
-      )}
+        <AnimatePresence>
+          {phase === "gate" && <EntryGate key="gate" onReady={handleReady} />}
+        </AnimatePresence>
 
-      {video === "requesting" && (
-        <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          Waiting for stranger to accept video…
-        </div>
-      )}
+        {notice && (
+          <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
+            {notice}
+          </div>
+        )}
 
-      {video === "incoming" && (
-        <ConnectionPrompt
-          title="Start video call?"
-          subtitle="The stranger wants to turn on video."
-          acceptLabel="Accept"
-          declineLabel="Decline"
-          onAccept={acceptVideo}
-          onDecline={declineVideo}
-        />
-      )}
+        {conn.kind === "requesting" && (
+          <div className="absolute left-1/2 top-20 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
+            <span>Requesting connection…</span>
+            <button
+              onClick={cancelRequest}
+              className="rounded-full bg-zinc-700 px-3 py-1 text-xs hover:bg-zinc-600"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
 
-      {video === "active" && (
-        <VideoPanel
-          localStream={localStream}
-          remoteStream={remoteStream}
-          onEnd={endVideo}
-        />
-      )}
-    </main>
+        {conn.kind === "incoming" && (
+          <ConnectionPrompt
+            title="A stranger wants to connect"
+            acceptLabel="Accept"
+            declineLabel="Decline"
+            onAccept={acceptIncoming}
+            onDecline={declineIncoming}
+          />
+        )}
+
+        {inChat && (
+          <ChatPanel
+            messages={messages}
+            connected={conn.kind === "connected"}
+            videoBusy={video !== "none"}
+            onSend={(text) => {
+              peerRef.current?.sendChat(text);
+              addMessage(true, text);
+            }}
+            onStartVideo={startVideoRequest}
+            onEnd={endConnection}
+          />
+        )}
+
+        {video === "requesting" && (
+          <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
+            Waiting for stranger to accept video…
+          </div>
+        )}
+
+        {video === "incoming" && (
+          <ConnectionPrompt
+            title="Start video call?"
+            subtitle="The stranger wants to turn on video."
+            acceptLabel="Accept"
+            declineLabel="Decline"
+            onAccept={acceptVideo}
+            onDecline={declineVideo}
+          />
+        )}
+
+        {video === "active" && (
+          <VideoPanel
+            localStream={localStream}
+            remoteStream={remoteStream}
+            onEnd={endVideo}
+          />
+        )}
+      </main>
+    </MotionConfig>
   );
 }

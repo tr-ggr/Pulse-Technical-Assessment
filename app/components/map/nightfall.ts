@@ -72,3 +72,55 @@ export function applyNightfall(map: MapboxMap): void {
   paint(map, "settlement-major-label", "text-color", "hsla(228, 30%, 86%, 0.72)");
   paint(map, "settlement-minor-label", "text-color", "hsla(228, 25%, 80%, 0.42)");
 }
+
+const SECONDS_PER_REVOLUTION = 150;
+const MAX_SPIN_ZOOM = 3;
+const RESUME_AFTER_MS = 2500;
+
+export function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+// Slow idle rotation for the entry screen. Pauses while the user drags or
+// zooms, resumes shortly after, and never runs under reduced motion.
+// Returns a stop function; once stopped, a pending `moveend` can't restart it.
+export function startSpin(map: MapboxMap): () => void {
+  if (prefersReducedMotion()) return () => {};
+  let stopped = false;
+  let interacting = false;
+  let resumeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const step = () => {
+    if (stopped || interacting || map.getZoom() > MAX_SPIN_ZOOM) return;
+    const center = map.getCenter();
+    center.lng -= 360 / SECONDS_PER_REVOLUTION;
+    map.easeTo({ center, duration: 1000, easing: (t) => t });
+  };
+  const pause = () => {
+    interacting = true;
+    clearTimeout(resumeTimer);
+  };
+  const resume = () => {
+    clearTimeout(resumeTimer);
+    resumeTimer = setTimeout(() => {
+      interacting = false;
+      step();
+    }, RESUME_AFTER_MS);
+  };
+
+  const pauseEvents = ["mousedown", "touchstart", "dragstart", "wheel"] as const;
+  const resumeEvents = ["mouseup", "touchend", "dragend", "zoomend"] as const;
+  for (const e of pauseEvents) map.on(e, pause);
+  for (const e of resumeEvents) map.on(e, resume);
+  map.on("moveend", step);
+  step();
+
+  return () => {
+    stopped = true;
+    clearTimeout(resumeTimer);
+    for (const e of pauseEvents) map.off(e, pause);
+    for (const e of resumeEvents) map.off(e, resume);
+    map.off("moveend", step);
+    map.stop();
+  };
+}

@@ -307,3 +307,23 @@ html {
     opacity: 0;
   }
 }
+
+/* Locating: rings radiate from the Enter button while we wait for a fix. */
+.radar-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1.5px solid var(--color-ember);
+  animation: radar 1.6s var(--ease-out-expo) infinite;
+}
+
+@keyframes radar {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(1.35, 1.9);
+    opacity: 0;
+  }
+}

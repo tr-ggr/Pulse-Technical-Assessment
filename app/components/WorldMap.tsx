@@ -6,8 +6,13 @@ import type { Map as MapboxMap, Marker } from "mapbox-gl";
 import type { PeerDot } from "@/lib/types";
 import { formatDistance } from "@/lib/identity";
 import { haversineKm } from "@/lib/geo";
-import { applyNightfall } from "./map/nightfall";
-import { createMeEl, createPeerEl, updatePeerEl, type DotState } from "./map/markers";
+import { applyNightfall, startSpin } from "./map/nightfall";
+import {
+  createMeEl,
+  createPeerEl,
+  updatePeerEl,
+  type DotState,
+} from "./map/markers";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -19,6 +24,47 @@ export interface MapLink {
   phase: LinkPhase;
 }
 
+// Mapbox enlarges the globe at low zooms, so the on-screen size can't be
+// derived from the zoom alone: measure the projected radius (centre → a point
+// 90° away on the limb) and correct the zoom until it fits `diameter`.
+function fitGlobe(map: MapboxMap, diameter: number) {
+  for (let i = 0; i < 3; i++) {
+    const c = map.getCenter();
+    const centre = map.project([c.lng, c.lat]);
+    const limb = map.project([c.lng + 90, 0]);
+    const radius = Math.hypot(limb.x - centre.x, limb.y - centre.y);
+    if (!Number.isFinite(radius) || radius < 1) return;
+    map.jumpTo({ zoom: map.getZoom() + Math.log2(diameter / (2 * radius)) });
+  }
+}
+
+// Entry-screen framing: the globe sits beside the gate copy on wide screens
+// and above it on phones, sized to the space that's left.
+function introView() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (w < 768) {
+    const bottom = Math.round(h * 0.46);
+    return {
+      diameter: Math.min(w * 0.9, (h - bottom) * 0.9),
+      padding: { top: 0, right: 0, bottom, left: 0 },
+    };
+  }
+  const left = Math.round(Math.min(560, w * 0.42));
+  return {
+    diameter: Math.min((w - left) * 0.84, h * 0.82),
+    padding: { top: 0, right: 0, bottom: 0, left },
+  };
+}
+
+// Open on the visitor's side of the world, guessed from their timezone, so
+// the first thing they see is home — before granting any permission.
+function homeLongitude(): number {
+  return (-new Date().getTimezoneOffset() / 60) * 15;
+}
+
+export const LIVE_ZOOM = 3.4;
+
 function dotStateFor(peerId: string, link: MapLink | null): DotState {
   if (!link || link.peerId !== peerId) return "idle";
   if (link.phase === "requesting") return "target";
@@ -27,12 +73,15 @@ function dotStateFor(peerId: string, link: MapLink | null): DotState {
 }
 
 export default function WorldMap({
+  mode,
   peers,
   me,
   link,
   onPeerClick,
   canConnect,
 }: {
+  // "intro": idle spinning globe behind the entry gate. "live": you're on it.
+  mode: "intro" | "live";
   peers: PeerDot[];
   me: { lat: number; lng: number } | null;
   link: MapLink | null;
@@ -64,15 +113,17 @@ export default function WorldMap({
       const mapboxgl = (await import("mapbox-gl")).default;
       if (cancelled || !containerRef.current) return;
       mapboxgl.accessToken = TOKEN;
+      const intro = introView();
       const map = new mapboxgl.Map({
         container: containerRef.current,
         style: "mapbox://styles/mapbox/dark-v11",
         projection: "globe",
-        // Open centered on the user if we know where they are, else world view.
-        center: me ? [me.lng, me.lat] : [0, 20],
-        zoom: me ? 3.4 : 1.4,
+        center: [homeLongitude(), 18],
+        zoom: 1.5,
         attributionControl: false,
       });
+      map.setPadding(intro.padding);
+      fitGlobe(map, intro.diameter);
       map.addControl(new mapboxgl.AttributionControl({ compact: true }));
       map.on("style.load", () => applyNightfall(map));
       map.on("load", () => {
@@ -91,9 +142,26 @@ export default function WorldMap({
       mapRef.current = null;
       setReady(false);
     };
-    // `me` is only read for the initial center; we don't want to re-init on change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Idle spin behind the gate; once live, fly down to your beacon (once).
+  const flewRef = useRef(false);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    if (mode === "intro") return startSpin(map);
+    if (me && !flewRef.current) {
+      flewRef.current = true;
+      // Not `essential`: Mapbox turns this into a jump under reduced motion.
+      map.flyTo({
+        center: [me.lng, me.lat],
+        zoom: window.innerWidth < 768 ? LIVE_ZOOM - 0.4 : LIVE_ZOOM,
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+        duration: 2800,
+        curve: 1.6,
+      });
+    }
+  }, [mode, me, ready]);
 
   // Show / move your own beacon.
   useEffect(() => {
@@ -184,8 +252,8 @@ export default function WorldMap({
         <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
           <p className="max-w-md rounded-lg bg-zinc-800 p-4 text-sm text-zinc-200">
             Set{" "}
-            <code className="text-emerald-400">NEXT_PUBLIC_MAPBOX_TOKEN</code> in{" "}
-            <code>.env</code> to load the map.
+            <code className="text-emerald-400">NEXT_PUBLIC_MAPBOX_TOKEN</code>{" "}
+            in <code>.env</code> to load the map.
           </p>
         </div>
       )}
