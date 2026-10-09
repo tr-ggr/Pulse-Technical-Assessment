@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { releaseUsers } from "@/lib/pairing";
-import { STALE_MS, SIGNAL_TTL_MS } from "@/lib/presence";
+import { STALE_MS } from "@/lib/presence";
+import { reapIfDue } from "@/lib/reaper";
 import type { PollResponse } from "@/lib/types";
 import { authenticate, unauthorized } from "@/lib/session";
 import { clientIp, limit, rules } from "@/lib/ratelimit";
@@ -11,8 +11,9 @@ export const dynamic = "force-dynamic";
 
 // GET /api/poll (Authorization: Bearer <token>) — the single endpoint that
 // drives the live map. It (1) heartbeats the caller, (2) reaps stale presence
-// + orphan signals, (3) returns the filtered online peers, and (4) drains the
-// caller's mailbox. The caller is whoever the token says, never a query param.
+// + orphan signals when the reaper lease is due, (3) returns the filtered
+// online peers, and (4) drains the caller's mailbox. The caller is whoever
+// the token says, never a query param.
 export async function GET(request: NextRequest) {
   const id = authenticate(request);
   if (!id) return unauthorized();
@@ -21,7 +22,6 @@ export async function GET(request: NextRequest) {
 
   const now = Date.now();
   const staleCutoff = new Date(now - STALE_MS);
-  const signalCutoff = new Date(now - SIGNAL_TTL_MS);
 
   // 1) Heartbeat — refresh lastSeen for the caller.
   // No row means we were reaped (throttled background tab, bfcache restore…):
@@ -34,21 +34,8 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: "session gone" }, { status: 410 });
   }
 
-  // 2) Reap stale presence rows and orphaned signals (independent deletes —
-  // no atomicity needed, and avoids transactions over a PgBouncer pooler).
-  // Stale users who were mid-connection free + notify their partner first.
-  const stale = await prisma.presence.findMany({
-    where: { lastSeen: { lt: staleCutoff } },
-    select: { id: true },
-  });
-  if (stale.length > 0) {
-    const staleIds = stale.map((p) => p.id);
-    await releaseUsers(staleIds);
-    await prisma.presence.deleteMany({
-      where: { id: { in: staleIds }, lastSeen: { lt: staleCutoff } },
-    });
-  }
-  await prisma.signal.deleteMany({ where: { createdAt: { lt: signalCutoff } } });
+  // 2) Housekeeping — at most once per few seconds across all instances.
+  await reapIfDue();
 
   // 3) Online peers, excluding self.
   const peers = await prisma.presence.findMany({

@@ -75,3 +75,17 @@ async function hit(rule: Rule) {
     RETURNING "count", "windowStart"`;
   return { rule, count: Number(rows[0].count), windowStart: rows[0].windowStart };
 }
+
+// A global "only one of you" lease on the same table: returns true for
+// exactly one caller per `ms`, across every serverless instance.
+export async function tryLease(key: string, ms: number): Promise<boolean> {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - ms);
+  const rows = await prisma.$queryRaw<{ key: string }[]>`
+    INSERT INTO "RateLimit" ("key", "windowStart", "count")
+    VALUES (${key}, ${now}, 1)
+    ON CONFLICT ("key") DO UPDATE SET "windowStart" = ${now}
+    WHERE "RateLimit"."windowStart" <= ${cutoff}
+    RETURNING "key"`;
+  return rows.length > 0;
+}
