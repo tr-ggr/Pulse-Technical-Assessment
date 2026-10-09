@@ -9,6 +9,8 @@ import Toasts from "./components/Toasts";
 import RequestingPill from "./components/RequestingPill";
 import RequestCard from "./components/RequestCard";
 import { useToasts } from "./hooks/useToasts";
+import { useAttention } from "./hooks/useAttention";
+import { playChime } from "@/lib/chime";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel, { type MediaState } from "./components/VideoPanel";
 import { join, leave, poll, sendSignal, SessionGoneError } from "@/lib/api";
@@ -346,6 +348,20 @@ export default function Home() {
       window.removeEventListener("beforeunload", onLeave);
     };
   }, [sessionId, phase]);
+
+  // Someone is waiting on you: flash the tab title and chime if you're away.
+  const incomingFrom = conn.kind === "incoming" ? conn.peerId : null;
+  const videoAsked = video === "incoming";
+  useAttention(
+    incomingFrom
+      ? "● A stranger wants to connect"
+      : videoAsked
+        ? "● Video call request"
+        : null,
+  );
+  useEffect(() => {
+    if ((incomingFrom || videoAsked) && document.hidden) playChime();
+  }, [incomingFrom, videoAsked]);
 
   async function handleReady(lat: number, lng: number) {
     locationRef.current = { lat, lng };

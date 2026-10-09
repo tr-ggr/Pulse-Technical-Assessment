@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { motion, useIsPresent } from "motion/react";
+import { primeAudio } from "@/lib/chime";
 
 type Status = "idle" | "locating" | "error";
 
@@ -41,6 +42,8 @@ export default function EntryGate({
   }
 
   function enter() {
+    // Unlock audio inside this click so request chimes can play later.
+    primeAudio();
     if (!("geolocation" in navigator)) {
       fail(
         "This browser can’t share its location, so Pulse can’t place you on the globe.",
