@@ -10,9 +10,15 @@ import {
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { Map as MapboxMap, Marker } from "mapbox-gl";
 import type { PeerDot } from "@/lib/types";
-import { formatDistance } from "@/lib/identity";
+import { formatDistance, peerColor } from "@/lib/identity";
 import { haversineKm } from "@/lib/geo";
 import { applyNightfall, startSpin } from "./map/nightfall";
+import {
+  ARC_EMBER,
+  createArc,
+  type ArcController,
+  type ArcMode,
+} from "./map/arc";
 import {
   createMeEl,
   createPeerEl,
@@ -77,6 +83,29 @@ export interface WorldMapHandle {
   recenter: () => void;
 }
 
+const ARC_MODE: Record<LinkPhase, ArcMode> = {
+  requesting: "seeking",
+  incoming: "calling",
+  connecting: "seeking",
+  connected: "linked",
+};
+
+// Room the UI takes up around the map, so framed things land in clear space.
+function framePadding() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (w < 1024) {
+    return {
+      top: 110,
+      right: 48,
+      bottom: Math.round(Math.min(h * 0.68, 640)) + 40,
+      left: 48,
+    };
+  }
+  // The chat card (400px + margins) docks right once the stranger accepts.
+  return { top: 120, right: 480, bottom: 120, left: 120 };
+}
+
 function dotStateFor(peerId: string, link: MapLink | null): DotState {
   if (!link || link.peerId !== peerId) return "idle";
   if (link.phase === "requesting") return "target";
@@ -107,6 +136,7 @@ export default function WorldMap({
   const markersRef = useRef<Map<string, Marker>>(new Map());
   const meMarkerRef = useRef<Marker | null>(null);
   const [ready, setReady] = useState(false);
+  const arcRef = useRef<ArcController | null>(null);
 
   // Marker click handlers are bound once, so read the live click handler +
   // connectability through refs (synced in an effect, never during render).
@@ -156,7 +186,9 @@ export default function WorldMap({
       map.addControl(new mapboxgl.AttributionControl({ compact: true }));
       map.on("style.load", () => applyNightfall(map));
       map.on("load", () => {
-        if (!cancelled) setReady(true);
+        if (cancelled) return;
+        arcRef.current = createArc(map);
+        setReady(true);
       });
       mapRef.current = map;
     })();
@@ -165,6 +197,8 @@ export default function WorldMap({
       cancelled = true;
       markers.forEach((m) => m.remove());
       markers.clear();
+      arcRef.current?.destroy();
+      arcRef.current = null;
       meMarkerRef.current?.remove();
       meMarkerRef.current = null;
       mapRef.current?.remove();
@@ -217,6 +251,66 @@ export default function WorldMap({
       cancelled = true;
     };
   }, [me, ready]);
+
+  // Draw the arc to whoever you're linked with, and keep it in sync as their
+  // dot updates. Their colour is the arc's far end; ember is yours.
+  const linkPeerId = link?.peerId ?? null;
+  const linkPhase = link?.phase ?? null;
+  const linkPeer = linkPeerId
+    ? peers.find((p) => p.id === linkPeerId)
+    : undefined;
+  const linkLat = linkPeer?.lat;
+  const linkLng = linkPeer?.lng;
+  useEffect(() => {
+    const arc = arcRef.current;
+    if (!arc || !ready) return;
+    if (
+      !linkPeerId ||
+      !linkPhase ||
+      !me ||
+      linkLat === undefined ||
+      linkLng === undefined
+    ) {
+      arc.clear();
+      return;
+    }
+    const peer = { lat: linkLat, lng: linkLng };
+    const theirs = peerColor(linkPeerId);
+    // A call comes *to* you: draw it from them, so the comet flies home.
+    if (linkPhase === "incoming") {
+      arc.set(peer, me, theirs, ARC_EMBER, ARC_MODE[linkPhase]);
+    } else {
+      arc.set(me, peer, ARC_EMBER, theirs, ARC_MODE[linkPhase]);
+    }
+  }, [ready, me, linkPeerId, linkPhase, linkLat, linkLng]);
+
+  // Frame you and the stranger together, once, when a link starts.
+  const framedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !me || !linkPeerId) {
+      if (!linkPeerId) framedRef.current = null;
+      return;
+    }
+    if (
+      framedRef.current === linkPeerId ||
+      linkLat === undefined ||
+      linkLng === undefined
+    )
+      return;
+    framedRef.current = linkPeerId;
+    // Unwrap across the antimeridian so the box spans the short way round.
+    let lng = linkLng;
+    while (lng - me.lng > 180) lng -= 360;
+    while (lng - me.lng < -180) lng += 360;
+    map.fitBounds(
+      [
+        [Math.min(me.lng, lng), Math.min(me.lat, linkLat)],
+        [Math.max(me.lng, lng), Math.max(me.lat, linkLat)],
+      ],
+      { padding: framePadding(), maxZoom: 5.5, duration: 1800 },
+    );
+  }, [ready, me, linkPeerId, linkLat, linkLng]);
 
   // Reconcile markers whenever the peer list changes (or the map becomes ready).
   useEffect(() => {
