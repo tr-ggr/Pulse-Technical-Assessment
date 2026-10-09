@@ -10,7 +10,7 @@ import RequestingPill from "./components/RequestingPill";
 import RequestCard from "./components/RequestCard";
 import { useToasts } from "./hooks/useToasts";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
-import VideoPanel from "./components/VideoPanel";
+import VideoPanel, { type MediaState } from "./components/VideoPanel";
 import { join, leave, poll, sendSignal, SessionGoneError } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS, REQUEST_TIMEOUT_MS } from "@/lib/presence";
@@ -26,6 +26,8 @@ type Conn =
 
 type VideoState = "none" | "requesting" | "incoming" | "active";
 
+const MEDIA_ON: MediaState = { mic: true, cam: true };
+
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
   const [sessionId] = useState(() => crypto.randomUUID());
@@ -37,6 +39,7 @@ export default function Home() {
   const mapHandle = useRef<WorldMapHandle>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [remoteMedia, setRemoteMedia] = useState<MediaState>(MEDIA_ON);
   const [myLocation, setMyLocation] = useState<{
     lat: number;
     lng: number;
@@ -72,6 +75,7 @@ export default function Home() {
     peerRef.current = null;
     setLocalStream(null);
     setRemoteStream(null);
+    setRemoteMedia(MEDIA_ON);
     setVideo("none");
     setMessages([]);
     setConn({ kind: "idle" });
@@ -140,7 +144,16 @@ export default function Home() {
         ps?.stopVideo();
         setLocalStream(null);
         setRemoteStream(null);
+        setRemoteMedia(MEDIA_ON);
         setVideo("none");
+        break;
+      case "mic-on":
+      case "mic-off":
+        setRemoteMedia((m) => ({ ...m, mic: ctrl === "mic-on" }));
+        break;
+      case "cam-on":
+      case "cam-off":
+        setRemoteMedia((m) => ({ ...m, cam: ctrl === "cam-on" }));
         break;
     }
   }
@@ -223,6 +236,7 @@ export default function Home() {
     ps?.sendControl("video-end");
     setLocalStream(null);
     setRemoteStream(null);
+    setRemoteMedia(MEDIA_ON);
     setVideo("none");
   }
 
@@ -462,9 +476,13 @@ export default function Home() {
               key="call"
               localStream={localStream}
               remoteStream={remoteStream}
-              remoteMedia={{ mic: true, cam: true }}
+              remoteMedia={remoteMedia}
               stranger={stranger}
-              onLocalMediaChange={() => {}}
+              onLocalMediaChange={(next) => {
+                const ps = peerRef.current;
+                ps?.sendControl(next.mic ? "mic-on" : "mic-off");
+                ps?.sendControl(next.cam ? "cam-on" : "cam-off");
+              }}
               onEnd={endVideo}
             />
           )}
