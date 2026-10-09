@@ -9,8 +9,9 @@ Full log with root causes and file references: [`docs/phase-1.md`](docs/phase-1.
   SDP/ICE → data channel → video → end/leave).
 - Compared each handler's code with its own comments and `docs/requirements.md`.
 - For every state flag, asked "who clears this, and when?"
-- Verification uses two browsers: a manual pass plus an automated two-context
-  Playwright run (`npm run e2e`).
+- Verified with two browsers: a manual playwright-cli run of two sessions on the real
+  Neon + Mapbox stack, plus an automated two-context Playwright test (`npm run e2e`).
+  The manual run found B6, which the first automated run had missed.
 
 **What was broken → fix (one commit each):**
 - **Dots never disappeared:** the poll heartbeat ran `updateMany({ where: {} })`,
@@ -27,6 +28,10 @@ Full log with root causes and file references: [`docs/phase-1.md`](docs/phase-1.
   someone who is in another call.
 - **Map broke silently without a token:** a fake fallback Mapbox token hid the
   "set your token" hint. → Removed it.
+- **Couldn't end a video call on a laptop screen:** the remote video's intrinsic
+  height pushed "End video" off-screen in a page that can't scroll. → `min-h-0`
+  and an absolutely positioned video. The e2e test now asserts the control is in
+  the viewport.
 
 **Reliability fixes needed for "reliably connect":**
 - **Leaving mid-chat stranded the partner:** leave and the stale reaper now free
@@ -43,5 +48,6 @@ Full log with root causes and file references: [`docs/phase-1.md`](docs/phase-1.
 - Join failures aren't surfaced in the UI.
 - No authentication on session ids. This is Phase 3.
 
-**Schema change:** run `npx prisma db push` (or `prisma migrate deploy`) to add
-`Presence.peerId`.
+**Schema change:** run `npx prisma migrate deploy` (or `db push`) to add
+`Presence.peerId`. The Prisma CLI uses `DATABASE_URL_UNPOOLED` (the direct
+connection) when it's set; the app uses the pooled `DATABASE_URL`.

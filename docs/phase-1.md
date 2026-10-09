@@ -40,16 +40,32 @@ holds even when a tab crashes rather than closing cleanly.
 
 ## Verification
 
-- `npx tsc --noEmit` and `npm run lint` are clean.
-- Runtime check: `npx prisma db push` (adds `peerId`), then `npm run e2e` and the
-  manual two-window checklist:
-  - dots visible
-  - connect and chat both ways
-  - video start and end
-  - hang up and reconnect
-  - close a tab mid-chat: the partner sees "Stranger disconnected" and the dot
-    disappears within about 15 s
-  - leave a tab in the background for more than 15 s: it re-appears
+Run against a fresh Neon project (`aws-ap-southeast-1`) after `prisma migrate deploy`.
+`prisma migrate diff` shows no drift between the database and `schema.prisma`.
+
+- **Static checks:** `npx tsc --noEmit` and `npm run lint` are clean.
+- **Automated:** `npm run e2e` passes (about 40 s). It uses two Chromium contexts
+  (Manila and Cebu) with fake camera and mic, and covers:
+  - see each other, connect
+  - chat both ways
+  - video both ways, with "End video" in the viewport
+  - end video, hang up, reconnect
+  - close one context: the chat ends and the dot disappears
+
+  With the B6 fix reverted, the test fails on `toBeInViewport()`.
+- **Manual (playwright-cli, two headless sessions):**
+
+  | Check | Result |
+  |---|---|
+  | Both dots visible on the real Mapbox map | ✅ |
+  | Connect: request, accept, "Connected" | ✅ |
+  | Chat A→B and B→A | ✅ |
+  | Video: both sides receive live audio and video tracks | ✅ |
+  | End video returns both to chat | ✅ |
+  | Hang up frees both (dots back to full opacity), reconnect works | ✅ |
+  | Clean leave (navigate away mid-chat): partner's chat ends in under 1.6 s, dot gone in about 3.7 s | ✅ |
+  | Hard kill (browser killed, no leave beacon): partner's chat ends and dot disappears in about 20 s, via the stale reaper and `releaseUsers` | ✅ |
+  | All presence rows deleted server-side: both clients get 410, re-join, and see each other again | ✅ |
 
 ## Findings
 
@@ -64,6 +80,7 @@ Status: ✅ fixed · 📝 logged for a later phase
 | B3 | The peer connection or video sometimes fails to establish | `lib/webrtc.ts` `handleSignal`: queued ICE candidates were flushed **before** `setRemoteDescription`. `addIceCandidate` throws without a remote description, the empty `catch {}` hid it, and the candidates were lost | Set the remote description first, then flush the queue | ✅ |
 | B4 | After one chat ends, both users stay greyed out as "busy" forever, and every new request to them is auto-declined | `app/api/signal/route.ts`: `busy` was set on `accept` but only cleared on `decline`, never on `end`, even though the comment says "decline/end: free both peers" | Clear on `end` too. `accept` now also records the pairing in a new `Presence.peerId` column | ✅ |
 | B5 | With no Mapbox token the map is silently blank: no hint, just 401s in the console | `app/components/WorldMap.tsx`: `NEXT_PUBLIC_MAPBOX_TOKEN ?? "pk.eyJ…fake"`. The fake fallback is truthy, so the "Set NEXT_PUBLIC_MAPBOX_TOKEN" help banner never shows | Remove the fallback | ✅ |
+| B6 | During a video call, "End video" is off-screen on a normal laptop (800 px tall), so the call can't be ended. Found in a manual two-browser run with playwright-cli | `app/components/VideoPanel.tsx`: the remote `<video>` sits in a `flex-1` item with the default `min-height: auto`. Its intrinsic 4:3 height (960 px at 1280 wide) grows the item and pushes the control bar to y≈976. The page is `fixed overflow-hidden`, so it can't be scrolled to | `min-h-0` on the flex item and an absolutely positioned video. The e2e test now asserts `toBeInViewport()`: `click()` auto-scrolls, which is why the first green run missed this | ✅ |
 
 ### Reliability issues fixed in Phase 1
 

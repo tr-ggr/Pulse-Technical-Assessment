@@ -84,6 +84,10 @@ test("two strangers can see, connect, chat, video, reconnect and leave", async (
   await expect.poll(() => remoteVideoHasTrack(a)).toBe(true);
   await expect.poll(() => remoteVideoHasTrack(b)).toBe(true);
 
+  // The page is fixed/overflow-hidden, so a user can't scroll to the control:
+  // it must be on screen (B6). click() alone would auto-scroll and hide this.
+  await expect(a.getByRole("button", { name: "End video" })).toBeInViewport();
+  await expect(b.getByRole("button", { name: "End video" })).toBeInViewport();
   await a.getByRole("button", { name: "End video" }).click();
   await expect(a.getByRole("button", { name: "End video" })).toBeHidden();
   await expect(b.getByRole("button", { name: "End video" })).toBeHidden();
