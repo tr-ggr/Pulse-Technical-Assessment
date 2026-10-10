@@ -1,5 +1,31 @@
 # NOTES
 
+## Blockers and how I worked around them
+
+Things I couldn't do the obvious way, what I did instead, and what's left.
+
+- **IP privacy needs a TURN relay, which is an external service.** P2P WebRTC
+  shows each peer the other's IP. → Documented as a known risk, not built
+  (Phase 3, finding 6). → Left: run a TURN relay and force relay-only ICE.
+- **Restricting the Mapbox token to the app's URL is a dashboard setting.** It
+  can't be done in code. → Documented (Phase 3). → Left: set the URL
+  restriction in the Mapbox account. The current key is a free-tier key I can
+  no longer edit, and creating a new one requires a card.
+- **No external services, so no Redis for rate limits.** → Postgres
+  fixed-window counters that expire on their own, per IP and per session
+  (Phase 3). → Left: the per-IP limits need tuning for carrier NAT.
+- **HMAC session tokens would need a new secret on Vercel**, and couldn't be
+  cancelled when a session ends. → The server issues a random token and the
+  public id is SHA-256(token), so nothing secret is stored
+  ([`docs/phase-3.md`](docs/phase-3.md)).
+- **The only database is the live Neon DB the Vercel deployment uses**, with no
+  separate dev database. → Every schema change in every phase is additive
+  (`prisma db push` adds columns and tables only), and nothing destructive was
+  run against it. → Left: a Neon branch per preview deployment.
+- **The report-pause rule can't be tried by hand from one machine.** Two
+  windows share a network, and by design a network can't pause itself. → The
+  rule is exercised through the API in `e2e/safety.spec.ts` (Phase 4).
+
 ## Phase 1 — Make it run
 
 Full log with root causes and file references: [`docs/phase-1.md`](docs/phase-1.md).
@@ -257,3 +283,26 @@ lastPeerIp` and the `Block` and `Report` tables. All additive.
 - escalating pauses for repeat offenders
 - on-device text-toxicity softening
 - TURN for IP privacy
+
+## Phase 4+ — Extras
+
+**Sound** (PR #6). One WebAudio engine in `lib/sound.ts` synthesises
+everything, so there are no audio files and nothing for the CSP to block.
+- Buttons tap, and mouse hovers tick quietly. Messages, connecting, hang-ups,
+  notices and requests each get their own cue.
+- A generative ambient pad plays while you're live and fades out during video
+  calls, so it never competes with the other person's voice.
+- A HUD toggle turns all sound off. The choice is remembered in
+  `localStorage`.
+
+**Mutual tap** (PR #7). Before, if two people requested each other at once,
+each client auto-declined the other's request because it wasn't idle, and
+both saw "Request declined".
+- Now a request that meets a live request coming the other way pairs both
+  users on the spot, in one atomic `UPDATE`, so it holds even when both
+  arrive at the same instant.
+- Tapping the dot of someone whose request card is showing accepts it.
+- **Verification:** new e2e tests in `e2e/security.spec.ts` and
+  `e2e/two-users.spec.ts`. They check that crossing requests pair without an
+  accept, that simultaneous requests pair exactly once, and that two
+  strangers tapping each other connect.

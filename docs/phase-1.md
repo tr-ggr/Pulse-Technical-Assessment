@@ -71,7 +71,7 @@ Run against a fresh Neon project (`aws-ap-southeast-1`) after `prisma migrate de
 
 Status: ✅ fixed · 📝 logged for a later phase
 
-### Blockers (planted bugs)
+### Planted bugs
 
 | # | Symptom | Root cause | Fix | Status |
 |---|---------|------------|-----|--------|
